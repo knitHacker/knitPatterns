@@ -1,7 +1,7 @@
 module KnitStitches where
 
 
-type Color = String
+type Color = Char
 
 
 data Side = Front | Back deriving Show
@@ -13,7 +13,10 @@ data Base = Knit | Purl deriving Show
 data Cable = Hold Side Cable Cable | Parts [Action] deriving Show
 
 
-data Decrease = Tog Int Stitch | PassStitchOver deriving Show
+data Decrease = Tog Int Stitch
+              | PassStitchOver Stitch
+              | Psso
+              | SlipStitch Int Stitch deriving Show
 
 
 data Increase = YarnOver Color | Between Stitch | IntoOneStitch [Stitch] deriving Show
@@ -33,7 +36,7 @@ data OnNeedle = On Base Color
               | Yo Color deriving Show
 
 data Row a = Row [a] 
-           | Round [a]
+           | Round [a] deriving Show
 
 
 displayFabric :: [[OnNeedle]] -> String
@@ -74,6 +77,10 @@ rib col bet total = if (bet*2) < total then (k col bet) ++ (p col bet) ++ (rib c
 castOn :: Color -> Int -> [OnNeedle]
 castOn col num = take num (repeat (Yo col))
 
+bindOff :: Int ->  Stitch -> [Action]
+bindOff 1 s = [Wrap s]
+bindOff n s = (Dec (PassStitchOver s)) : (bindOff (n-1) s)
+
 
 class KnitAction a where
     uses :: a -> Int
@@ -103,14 +110,20 @@ instance KnitAction Action where
 
 
 instance KnitAction Decrease where
-    uses (Tog n s) = n
-    uses PassStitchOver = 1
+    uses (Tog n _) = n
+    uses (PassStitchOver _) = 1
+    uses Psso = 1
+    uses (SlipStitch n _) = n
 
     makes (Tog _ _) = 1
-    makes PassStitchOver = -1
+    makes (PassStitchOver _)= 0
+    makes Psso = 0
+    makes (SlipStitch _ _) = 1
 
     doAction prev (Tog n s) = (drop n prev, [stitch s])
-    doAction (_:tl) PassStitchOver = (tl, [])
+    doAction (_:n:tl) (PassStitchOver _) = ((n:tl), [])
+    doAction (_:tl) Psso = (tl, [])
+    doAction prev (SlipStitch n s) = (drop n prev, [stitch s])
 
 
 instance KnitAction Increase where
@@ -166,10 +179,23 @@ flipFabric Front = Back
 flipFabric Back = Front
 
 makeFabric :: KnitAction a => Side -> [OnNeedle] -> [Row a] -> [[OnNeedle]]
-makeFabric side onNeedle [] = [onNeedle]
+makeFabric Front onNeedle [] = [onNeedle]
+makeFabric Back onNeedle [] = [reverse (back onNeedle)]
 makeFabric side onNeedle (r:pattern) = (front side onNeedle) : (rest r)
     where
         rest (Row row) = makeFabric (flipFabric side) (knitPattern (reverse (back onNeedle)) row) pattern
         rest (Round round) = makeFabric side (knitPattern onNeedle round) pattern
         front Front on = on
         front Back on = reverse (back on)
+
+stockinetteStitch :: Color -> Bool -> Int -> Int -> [Row Action]
+stockinetteStitch col backAndForth width rows = if backAndForth then (nextRow Front rows)
+                                                else take rows (fmap Round (repeat (k col width)))
+    where
+        nextRow _ 0 = []
+        nextRow Front rows = (Row (k col width)) : (nextRow Back (rows - 1))
+        nextRow Back rows = (Row (p col width)) : (nextRow Front (rows - 1))
+
+finish :: [[OnNeedle]] -> Stitch -> [[OnNeedle]]
+finish fabric s = fabric ++ [knitPattern (last fabric) lastRow]
+    where lastRow = bindOff (length (last fabric)) s
