@@ -1,52 +1,139 @@
 module KnitStitches where
 
+import Data.List
 
 type Color = Char
 
 
-data Side = Front | Back deriving Show
+data Side = Front | Back deriving Eq
+
+instance Show Side where
+    show Front = "front"
+    show Back = "back"
 
 
-data Base = Knit | Purl deriving Show
+data Base = Knit | Purl deriving Eq
+
+instance Show Base where
+    show Knit = "k"
+    show Purl = "p"
 
 
-data Cable = Hold Side Cable Cable | Parts [Action] deriving Show
+data Cable = Hold Side Pattern Pattern deriving Eq
 
+instance Show Cable where
+    show (Hold side c1 c2) =
+        "Place "++(show (uses c1))++" stitches on cn and hold in "++(show side)++", "++(show c2)++", "++(show c1)++" from the cn, "
 
 data Decrease = Tog Int Stitch
-              | PassStitchOver Stitch
-              | Psso
-              | SlipStitch Int Stitch deriving Show
+              | PassStitchOver Stitch Action
+              | Psso Action
+              | SlipStitch Int Stitch deriving Eq
+
+instance Show Decrease where
+    show (Tog n s) = (show s)++(show n)++"tog"
+    show (PassStitchOver s a) = (show s) ++ " " ++ (show a) ++ "pass prev st over last st"
+    show (Psso a) = "sl st "++(show a)++", psso"
+    show (SlipStitch n s) = "slip "++(show n)++", "++(show s)++" slipped sts"
 
 
-data Increase = YarnOver Color | Between Stitch | IntoOneStitch [Stitch] deriving Show
+data Increase = YarnOver Color
+              | Between Stitch
+              | IntoOneStitch [Stitch] deriving Eq
+
+instance Show Increase where
+    show (YarnOver col) = "yo"
+    show (Between s) = (show s) ++ " into space between stitches"
+    show (IntoOneStitch sl) = (show (fmap Wrap sl)) ++ " into the next st"
 
 
-data Stitch = Stitch Base Side Color deriving Show
+data Stitch = Stitch Base Side Color deriving Eq
+
+instance Show Stitch where
+    show (Stitch b Back _) = (show b)++"tbl"
+    show (Stitch b _ _) = (show b)
 
 
 data Action = Wrap Stitch
             | Dec Decrease
             | Inc Increase
             | Cross Cable 
-            | Slip deriving Show
+            | Slip deriving Eq
 
+instance Show Action where
+    show (Wrap s) = show s
+    show (Dec d) = show d
+    show (Inc i) = show i
+    show (Cross c) = show c
+    show Slip = "sl"
 
 data OnNeedle = On Base Color
-              | Yo Color deriving Show
+              | Yo Color deriving Eq
 
-data Row a = Row [a] 
-           | Round [a] deriving Show
+instance Show OnNeedle where
+    show (On Knit _) = "^"
+    show (On Purl _) = "o"
+    show (Yo _) = "/"
+
+data Row = Row Pattern
+         | Round Pattern deriving Eq
+
+instance Show Row where
+    show (Row p) = show p
+    show (Round p) = show p
 
 
-displayFabric :: [[OnNeedle]] -> String
-displayFabric [] = ""
-displayFabric (h:tl) = foldr (:) ("\n"++(displayFabric tl)) (fmap encode h)
+newtype Pattern = Pattern [Action] deriving Eq
+
+
+instance Show Pattern where
+    show (Pattern pl) = concat (fmap show pl) 
+
+newtype Fabric = Fabric [[OnNeedle]] deriving Eq
+
+instance Show Fabric where
+    show (Fabric []) = ""
+    show (Fabric (h:tl)) = oneRow ++ (show (Fabric tl))
+        where
+            oneRow = (concat (fmap show h)) ++ "\n"
+        
+
+data Repeat a = Repeat a Int
+              | RepeatPat [a] Int deriving Eq
+
+instance KnitAction a => Show (Repeat a) where
+    show (Repeat a n) = (show a) ++ (show n)
+    show (RepeatPat (h:tl) n) = undefined
+
+
+findPatterns :: Row -> [Repeat Action]
+findPatterns (Row (Pattern rl)) = reverse (findPatterns' [] rl)
     where
-        encode (On Knit _) = '^'
-        encode (On Purl _) = 'o'
-        encode (Yo _) = '_'
+        lookPattern r [] = (r, [])
+        lookPattern r@(Repeat a n) l@(h:tl) =  if a == h then lookPattern (Repeat a (n+1)) tl
+                                                         else (r, l)
+        findPatterns' r [] = r
+        findPatterns' rl (h:tl) = findPatterns' (r:rl) rest
+            where
+                (r, rest) = lookPattern (Repeat h 1) tl
 
+printPattern :: [Row] -> String
+printPattern row = printRows [1..](fmap findPatterns row)
+    where
+        printRows _ [] = ""
+        printRows (n:tl) (rowStr:rl) = "Row "++(show n)++": "++(makeRow rowStr)++"\n"++(printRows tl rl)
+        makeRow rowStr = intercalate ", " (fmap show rowStr)
+
+repeatToPattern :: [Repeat Action] -> Pattern
+repeatToPattern al = Pattern (repeatToPattern' al)
+    where
+        repeatToPattern' [] = []
+        repeatToPattern' (Repeat a n:tl) = (take n (repeat a)) ++ (repeatToPattern' tl)
+        repeatToPattern' (RepeatPat pat n:tl) = (concat (take n (repeat pat))) ++ (repeatToPattern' tl)
+
+
+continueInPattern :: [Row] -> Int -> [Row]
+continueInPattern r times = concat (take times (repeat r))
 
 stitch :: Stitch -> OnNeedle
 stitch (Stitch b _ c) = On b c
@@ -68,24 +155,34 @@ p :: Color -> Int -> [Action]
 p _ 0 = []
 p col num = (purl col) : (p col (num - 1))
 
-rib :: Color -> Int -> Int -> [Action]
-rib _ bet 0 = []
-rib col bet total = if (bet*2) < total then (k col bet) ++ (p col bet) ++ (rib col bet (total - (bet*2)))
-                    else if total > bet then (k col bet) ++ (p col (total - bet))
-                         else k col total
+rib :: Color -> Int -> Int -> Pattern 
+rib col bet total = Pattern (rib' col bet total)
+    where
+        rib' _ bet 0 = []
+        rib' col bet total = if (bet*2) < total then (k col bet) ++ (p col bet) ++ (rib' col bet (total - (bet*2)))
+                             else if total > bet then (k col bet) ++ (p col (total - bet))
+                                  else k col total
 
 castOn :: Color -> Int -> [OnNeedle]
-castOn col num = take num (repeat (Yo col))
-
-bindOff :: Int ->  Stitch -> [Action]
-bindOff 1 s = [Wrap s]
-bindOff n s = (Dec (PassStitchOver s)) : (bindOff (n-1) s)
+castOn col num = take num (repeat (On Purl col))
 
 
-class KnitAction a where
+class Show a => KnitAction a where
     uses :: a -> Int
     makes :: a -> Int
     doAction :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
+
+
+instance KnitAction Pattern where
+    uses (Pattern pat) = sum (fmap uses pat)
+    makes (Pattern pat) = sum (fmap makes pat)
+
+    doAction [] (Pattern []) = ([], [])
+    doAction prev (Pattern (h:tl)) = (rem, firstOut++restOut)
+        where
+            (rem1, firstOut) = doAction prev h
+            (rem, restOut) = doAction rem1 (Pattern tl)
+    doAction _ _ = error "Previous row doesn't match up with pattern"
 
 
 instance KnitAction Action where
@@ -108,21 +205,20 @@ instance KnitAction Action where
     doAction (n:tl) Slip = (tl, [n])
     doAction p a = error ("Failed to do "++(show a)++" on "++(show p)++".")
 
-
 instance KnitAction Decrease where
     uses (Tog n _) = n
-    uses (PassStitchOver _) = 1
-    uses Psso = 1
+    uses (PassStitchOver _ a) = 1 + (uses a)
+    uses (Psso a) = 1 + (uses a)
     uses (SlipStitch n _) = n
 
     makes (Tog _ _) = 1
-    makes (PassStitchOver _)= 0
-    makes Psso = 0
+    makes (PassStitchOver _ a)= makes a
+    makes (Psso a) = makes a
     makes (SlipStitch _ _) = 1
 
     doAction prev (Tog n s) = (drop n prev, [stitch s])
-    doAction (_:n:tl) (PassStitchOver _) = ((n:tl), [])
-    doAction (_:tl) Psso = (tl, [])
+    doAction (_:tl) (PassStitchOver _ a) = doAction tl a
+    doAction (_:tl) (Psso a) = doAction tl a
     doAction prev (SlipStitch n s) = (drop n prev, [stitch s])
 
 
@@ -142,21 +238,11 @@ instance KnitAction Increase where
 
 instance KnitAction Cable where
     uses (Hold _ c1 c2) = (uses c1) + (uses c2)
-    uses (Parts sl) = foldl (+) 0 (fmap uses sl)
-
     makes (Hold _ c1 c2) = (makes c1) + (makes c2)
-    makes (Parts sl) = foldl (+) 0 (fmap makes sl)
-
     doAction prev (Hold _ c1 c2) = (lastRem, fstOut ++ heldOut)
         where
             (remain, heldOut) = doAction prev c1
             (lastRem, fstOut) = doAction remain c2
-    doAction prev (Parts []) = (prev, [])
-    doAction prev (Parts (s:sl)) = (lastRm, needle ++ restNeedle)
-        where
-            (rm, needle) = doAction prev s
-            (lastRm, restNeedle) = doAction rm (Parts sl)
-
 
 knitPattern :: KnitAction a => [OnNeedle] -> [a] -> [OnNeedle]
 knitPattern [] [] = []
@@ -171,31 +257,33 @@ inverse (On Knit c) = (On Purl c)
 inverse (On Purl c) = (On Knit c)
 inverse yo = yo
 
-back :: [OnNeedle] -> [OnNeedle]
-back = fmap inverse
+backNeedle :: [OnNeedle] -> [OnNeedle]
+backNeedle = fmap inverse
 
 flipFabric :: Side -> Side
 flipFabric Front = Back
 flipFabric Back = Front
 
-makeFabric :: KnitAction a => Side -> [OnNeedle] -> [Row a] -> [[OnNeedle]]
-makeFabric Front onNeedle [] = [onNeedle]
-makeFabric Back onNeedle [] = [reverse (back onNeedle)]
-makeFabric side onNeedle (r:pattern) = (front side onNeedle) : (rest r)
-    where
-        rest (Row row) = makeFabric (flipFabric side) (knitPattern (reverse (back onNeedle)) row) pattern
-        rest (Round round) = makeFabric side (knitPattern onNeedle round) pattern
-        front Front on = on
-        front Back on = reverse (back on)
 
-stockinetteStitch :: Color -> Bool -> Int -> Int -> [Row Action]
+makeFabric :: Side -> [OnNeedle] -> [Row] -> Fabric
+makeFabric s on rs = Fabric (makeFabric' s on rs)
+    where
+        makeFabric' Front onNeedle [] = [onNeedle]
+        makeFabric' Back onNeedle [] = [reverse (backNeedle onNeedle)]
+        makeFabric' side onNeedle (r:pattern) = (front side onNeedle) : (rest r)
+            where
+                rest (Row (Pattern row)) = makeFabric' (flipFabric side) (knitPattern (reverse (backNeedle onNeedle)) row) pattern
+                rest (Round (Pattern round)) = makeFabric' side (knitPattern onNeedle round) pattern
+                front Front on = on
+                front Back on = reverse (backNeedle on)
+
+
+stockinetteStitch :: Color -> Bool -> Int -> Int -> [Row]
 stockinetteStitch col backAndForth width rows = if backAndForth then (nextRow Front rows)
-                                                else take rows (fmap Round (repeat (k col width)))
+                                                else take rows (fmap Round (fmap Pattern (repeat (k col width))))
     where
         nextRow _ 0 = []
-        nextRow Front rows = (Row (k col width)) : (nextRow Back (rows - 1))
-        nextRow Back rows = (Row (p col width)) : (nextRow Front (rows - 1))
+        nextRow Front rows = (Row (Pattern (k col width))) : (nextRow Back (rows - 1))
+        nextRow Back rows = (Row (Pattern (p col width))) : (nextRow Front (rows - 1))
 
-finish :: [[OnNeedle]] -> Stitch -> [[OnNeedle]]
-finish fabric s = fabric ++ [knitPattern (last fabric) lastRow]
-    where lastRow = bindOff (length (last fabric)) s
+
