@@ -98,120 +98,60 @@ instance Show Fabric where
             oneRow = (concat (fmap show h)) ++ "\n"
         
 
-data Repeat a = EmptyRepeat
-              | Repeat a Int
-              | RepeatPat [Repeat a] Int deriving Eq
+-- n-branch tree
+data Repeat a = Repeat a Int 
+              | RepeatPat [Repeat a] Int deriving (Show, Eq)
 
-class KnitPattern a where
-    first :: a b -> b
-    rest :: a b -> a b
-    combine :: a b -> a b -> a b
 
-instance KnitPattern Repeat where
-    first EmptyRepeat = error "Can't take first of EmptyRepeat"
-    first (Repeat a n) = if n < 1 then error "Can't take first of empty Repeat" else a
-    first (RepeatPat [] _) = error "Can't take first of empty RepeatPat"
-    first (RepeatPat (r:tl) n) = if n < 1 then error "Can't take first of empty RepeatPat" else first r
+incrRepeat :: Repeat a -> Repeat a
+incrRepeat (Repeat a n) = (Repeat a (n+1))
+incrRepeat (RepeatPat r n) = (RepeatPat r (n+1))
 
-    rest EmptyRepeat = error "can't take rest of EmptyRepeat"
-    rest (Repeat a n) = if n < 1 then error "Can't take first of empty Repeat" else EmptyRepeat
-    rest (RepeatPat [] _) = error "Can't take rest of empty RepeatPat"
-    rest (RepeatPat (r:tl) 1) = RepeatPat (rest r:tl) 1
-    rest (RepeatPat p@(r:tl) n) = if n < 1 then error "Can't take rest of empty RepeatPat"
-                                         else RepeatPat [RepeatPat (rest r:tl) 1, RepeatPat p (n-1)] 1
-    combine EmptyRepeat r = r
-    combine r EmptyRepeat = r
-    combine r1 r2 = RepeatPat [r1,r2] 1
 
-newtype RepPattern a = RepPattern [Either a (Repeat a)] deriving Show
-
-instance KnitPattern RepPattern where
-    first (RepPattern (e:_)) = 
-        case e of 
-            Left a -> a
-            Right r -> first r 
-    rest (RepPattern p@(e:tl)) =
-        case e of
-            Left a -> RepPattern tl
-            Right EmptyRepeat -> rest (RepPattern tl)
-            Right r -> case rest r of 
-                EmptyRepeat -> RepPattern tl
-                restRep -> RepPattern (Right restRep:tl)
-    combine (RepPattern al) (RepPattern bl) = RepPattern (al++bl)
-
-instance KnitAction a => Show (Repeat a) where
-    show (Repeat a n) = (show a) ++ (show n)
-    show (RepeatPat al n) = ", *"++(concat (fmap show al))++", repeat from the * "++(show n)++" times,"
-
-frontMatch :: Eq a => Repeat a -> RepPattern a -> Maybe (RepPattern a)
-frontMatch EmptyRepeat rp = Just rp
-frontMatch (Repeat a 0) rp = Just rp
-frontMatch (RepeatPat [] _) rp = Just rp
-frontMatch (RepeatPat _ 0) rp = Just rp
-frontMatch _ rp@(RepPattern []) = Nothing
-frontMatch r@(Repeat a n) rp@(RepPattern (e:tl)) =
-    case e of
-        Left a2 -> if a == a2 then frontMatch (Repeat a (n-1)) (RepPattern tl)
-                              else Nothing
-        Right EmptyRepeat -> frontMatch r (RepPattern tl)
-        Right (Repeat _ 0) -> frontMatch r (RepPattern tl)
-        Right (RepeatPat [] _) -> frontMatch r (RepPattern tl)
-        Right (RepeatPat _ 0) -> frontMatch r (RepPattern tl)
-        Right (Repeat ap np) -> if n <= np then if a == ap then Just (RepPattern tl)
-                                                           else Nothing
-                                           else Nothing
-        Right (RepeatPat rp@(h:rl) np) -> frontMatch r 
-            (if np > 1 then RepPattern ((Right h):(Right (RepeatPat rl 1)):(Right (RepeatPat rp (np - 1))):tl)
-                       else RepPattern ((Right h):tl))
-frontMatch (RepeatPat r@(r2:tl) n) rp = 
-    case frontMatch r2 rp of 
-        Just newrp -> frontMatch (RepeatPat [(RepeatPat tl 1), (RepeatPat r (n-1))] 1) newrp
-        Nothing -> Nothing
-
-findPatterns :: Row -> RepPattern Action
-findPatterns (Row (Pattern rl)) = recursePatterns
+expandPattern :: Repeat Action -> [Action]
+expandPattern (Repeat a n) = take n (repeat a)
+expandPattern (RepeatPat _ 0) = []
+expandPattern (RepeatPat [] n) = []
+expandPattern (RepeatPat r@(h:tl) n) = (expandPattern h) ++ (expandPattern restOfPat) ++ (expandPattern repeatPat)
     where
-        recursePatterns = let p1 = findPatterns' EmptyRepeat (RepPattern (fmap (\a -> Left a) rl)) in
-                          findPatterns' EmptyRepeat p1
-        findPatterns' :: Repeat Action -> RepPattern Action -> RepPattern Action
-        findPatterns' r (RepPattern []) = RepPattern (case r of 
-            EmptyRepeat -> []
-            Repeat _ 0 -> []
-            Repeat a 1 -> [Left a]
-            Repeat a n -> [Right r]
-            RepeatPat [] _ -> []
-            RepeatPat _ 0 -> []
-            RepeatPat rl _ -> [Right r])
-        findPatterns' EmptyRepeat pl = findPatterns' (Repeat (first pl) 1) (rest pl)
-        findPatterns' (Repeat _ 0) pl = findPatterns' (Repeat (first pl) 1) (rest pl)
-        findPatterns' (RepeatPat _ 0) pl = findPatterns' (Repeat (first pl) 1) (rest pl)
-        findPatterns' (RepeatPat [] _) pl = findPatterns' (Repeat (first pl) 1) (rest pl)
-        findPatterns' r@(Repeat a n) pl =
-            case frontMatch r pl of
-                Just restpl -> findPatterns' (Repeat a (n+1)) restpl
-                Nothing -> if n > 1 then combine (RepPattern [Right (Repeat a n)]) (findPatterns' EmptyRepeat pl)
-                                    else findPatterns' (RepeatPat [r, Repeat (first pl) 1] 1) (rest pl)
-        findPatterns' r@(RepeatPat rl n) pl =
-            case frontMatch r pl of
-                Just restpl -> findPatterns' (RepeatPat rl (n+1)) restpl
-                Nothing -> if n > 1 then combine (RepPattern [Right r]) (findPatterns' EmptyRepeat pl)
-                                    else findPatterns' (RepeatPat (rl ++ [Repeat (first pl) 1]) 1) pl
-{-
-printPattern :: [Row] -> String
-printPattern row = printRows [1..](fmap findPatterns row)
+        restOfPat = RepeatPat tl n
+        repeatPat = RepeatPat r (n-1)
+
+topPattern :: Repeat Action -> [Action]
+topPattern (Repeat _ 0) = []
+topPattern (Repeat a _) = [a]
+topPattern (RepeatPat _ 0) = []
+topPattern (RepeatPat pl _) = concat (fmap expandPattern pl)
+
+matchFront :: Eq a => [a] -> [a] -> Bool
+matchFront [] _ = True
+matchFront _ [] = False
+matchFront (h1:t1) (h2:t2) = if h1 == h2 then matchFront t1 t2
+                                         else False
+
+countRepeats :: Eq a => [a] -> [a] -> Int
+countRepeats p [] = 0
+countRepeats p l = if isPrefixOf p l then 1 + (countRepeats p (drop (length p) l))
+                                     else (countRepeats p (tail l))
+
+--findPatterns :: Row -> Repeat Action
+findPatterns (Row (Pattern rl)) = (head sortByGroupLen)
     where
-        printRows _ [] = ""
-        printRows (n:tl) (rowStr:rl) = "Row "++(show n)++": "++(makeRow rowStr)++"\n"++(printRows tl rl)
-        makeRow rowStr = intercalate ", " (fmap show rowStr)
--}
-{-
-repeatToPattern :: [Repeat Action] -> Pattern
-repeatToPattern al = Pattern (repeatToPattern' al)
-    where
-        repeatToPattern' [] = []
-        repeatToPattern' (Repeat a n:tl) = (take n (repeat a)) ++ (repeatToPattern' tl)
-        repeatToPattern' (RepeatPat pat n:tl) = (concat (take n (repeat pat))) ++ (repeatToPattern' tl)
--}
+        makeRepeat (a:[]) = Repeat a 1
+        makeRepeat l = RepeatPat (fmap (\x -> Repeat x 1) l) 1
+
+        sortByGroupLen = reverse (sortOn (\x -> div (length x) (length (group x))) (reverse repSubPats))
+        repSubPats = sortOn (\x -> (countRepeats x rl)) (filter (\x -> (countRepeats x rl) > 1) sortedSubPats)
+        sortedSubPats = reverse (sortOn (length) (nub halfOrLess))
+        halfOrLess = filter (\x -> length x <= (div (length rl) 2)) allCombs
+        allCombs = findStart rl
+        findStart [] = []
+        findStart l@(h:t) = (findLast l) ++ (findStart t)
+        findLast [] = []
+        findLast l = l : (findLast (init l))
+
+repeatToPattern :: Repeat Action -> Pattern
+repeatToPattern al = Pattern (expandPattern al)
 
 continueInPattern :: [Row] -> Int -> [Row]
 continueInPattern r times = concat (take times (repeat r))
