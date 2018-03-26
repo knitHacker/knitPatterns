@@ -41,3 +41,10 @@ stockinetteStitch backAndForth width rows = if backAndForth then (nextRow Front 
         nextRow Back rows = (Row (Pattern (p width))) : (nextRow Front (rows - 1))
 
 
+
+leftMoveCable :: Int -> Int -> Cable
+leftMoveCable kn pn = Hold Front (Pattern (k kn)) (Pattern (p pn))
+
+rightMoveCable :: Int -> Int -> Cable
+rightMoveCable kn pn = Hold Back (Pattern (p pn)) (Pattern (k kn))
+

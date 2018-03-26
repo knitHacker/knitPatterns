@@ -47,6 +47,7 @@ instance Show Increase where
 
 data Stitch = Stitch Base Side deriving Eq
 
+
 instance Show Stitch where
     show (Stitch b Back) = (show b)++"tbl"
     show (Stitch b _) = (show b)
@@ -101,10 +102,36 @@ continueInPattern r times = concat (take times (repeat r))
 
 
 -- Can only give the next row if possible
---nextRow :: Pattern -> Maybe Row
---nextRow (Pattern al) =
+-- Will purl all knit stitches and knit all purl stitches
+-- other stitches will be knit or purled depending on the side
+-- of the row (knit for front and purl for back)
+-- Give pattern and the side of the that pattern
+nextRow :: Pattern -> Side -> Row
+nextRow pat side = Row (Pattern (nextRow'' pat))
+    where
+        defaultStitch = case side of Front -> (Wrap (Stitch Knit Front))
+                                     Back -> (Wrap (Stitch Purl Front))
+        nextRow'' (Pattern p) = nextRow' (reverse p)
+        nextRow' [] = []
+        nextRow' (h:tl) = let cont = nextRow' tl in
+            case h of
+                Wrap (Stitch Knit s) -> (Wrap (Stitch Purl s)) : cont
+                Wrap (Stitch Purl s) -> (Wrap (Stitch Knit s)) : cont
+                Cross (Hold _ p1 p2) -> (nextRow'' p1) ++ (nextRow'' p2) ++ cont
+                a -> (take (makes a) (repeat defaultStitch)) ++ cont
 
---nextRound :: Pattern -> Round
+-- Knit all knit stitches and Purl all purl stitches
+-- and knit all 'unknown' stitches
+nextRound :: Pattern -> Row
+nextRound pat = Round (Pattern (nextRound'' pat))
+    where
+        nextRound'' (Pattern p) = nextRound' p
+        nextRound' [] = []
+        nextRound' (h:tl) = let cont = nextRound' tl in
+            case h of
+                Wrap s -> (Wrap s) : cont
+                Cross (Hold _ p1 p2) -> (nextRound'' p2) ++ (nextRound'' p1) ++ cont
+                a -> (take (makes a) (repeat (Wrap (Stitch Knit Front)))) ++ cont
 
 
 stitch :: Stitch -> OnNeedle
