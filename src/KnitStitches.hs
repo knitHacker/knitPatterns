@@ -2,7 +2,11 @@ module KnitStitches where
 
 import Data.List
 
-
+-- The Front side refers to the side closest to the knitter
+-- While the Back side refers to the side away from the knitter
+-- When used in Fabric or Row Front refers to the 'Right side'
+-- or the side that will be facing out when worn / used
+-- The Back in that case is the side facing inward
 data Side = Front | Back deriving Eq
 
 instance Show Side where
@@ -10,19 +14,42 @@ instance Show Side where
     show Back = "back"
 
 
+-- Base knit stitches are Knit and Purl
+-- This represents both the action of knit and purl
+-- but also the state of a loop on a needle where
+-- knit is the flat v while purl is the bump or loop
 data Base = Knit | Purl deriving Eq
+
 
 instance Show Base where
     show Knit = "k"
     show Purl = "p"
 
-
-data Cable = Hold Side Pattern Pattern deriving Eq
+-- A cable represents moving stitches physically
+-- usually with a cable needle or cn
+-- After a cable is worked the two sequences will be
+-- reversed on the needle. The first sequence is the
+-- stitches being carried so they show up first and
+-- will end after the second sequence.
+-- The side is the side the carried stitches should
+-- be on while knitting the second set
+data Cable = Hold Side Sequence Sequence deriving Eq
 
 instance Show Cable where
     show (Hold side c1 c2) =
         "Place "++(show (uses c1))++" stitches on cn and hold in "++(show side)++", "++(show c2)++", "++(show c1)++" from the cn, "
 
+-- Stitches that reduce the number of stitches on the needle after they are completed
+-- This is by no means a complete list but should cover the majority of cases
+-- Tog does a Stitch into n number of stitches at once to turn n stitches to 1
+-- Pass stitch over has the stitch that will be passed over the resulting stitch
+-- produced by the action.
+-- PSSO is pass slip stitch over. Does not contain slip knit or purlwise.
+-- Implies one stitch will be slipped and an action will be performed that
+-- the resulting stitch will have the slip stitch passed over it
+-- SlipStitch is the opposite of Tog, if given 2 and knit this would
+-- be seen normally as ssk. Slip the number of stitches to the right
+-- needle and with the left needle apply the given stitch.
 data Decrease = Tog Int Stitch
               | PassStitchOver Stitch Action
               | Psso Action
@@ -34,7 +61,15 @@ instance Show Decrease where
     show (Psso a) = "sl st "++(show a)++", psso"
     show (SlipStitch n s) = "slip "++(show n)++", "++(show s)++" slipped sts"
 
-
+-- Stitches that increase the number of stitches in a pattern
+-- Definitely not inclusive, still figuring out how to represent 'picking up' stitchs on stitches not on the needle
+-- YarnOver is standard yo, place the working yarn on the opposite side needed for the next stitch
+-- The result will be an extra strand on the needle that will be the new stitch
+-- If multiple YarnOvers are in a row then the resulting stitches can not all be knit or purled the same way
+-- This restriction is not represented in this encoding
+-- Between Stitch is usually seen as m1 or m1l or m1r the side of the stitch into the yarn between the last
+-- stitch and the next stitch will determine if it is a left or right leaning make
+-- IntoOneStitch is a list of stitches to be done into the next loop on the left needle
 data Increase = YarnOver
               | Between Stitch
               | IntoOneStitch [Stitch] deriving Eq
@@ -45,6 +80,9 @@ instance Show Increase where
     show (IntoOneStitch sl) = (show (fmap Wrap sl)) ++ " into the next st"
 
 
+-- Adds a 'side' component to the base stitches
+-- If the side is Back this would be seen as ktbl or ptbl
+-- which produces a twisted stitch
 data Stitch = Stitch Base Side deriving Eq
 
 
@@ -52,7 +90,16 @@ instance Show Stitch where
     show (Stitch b Back) = (show b)++"tbl"
     show (Stitch b _) = (show b)
 
-
+-- Action are 'stitches' that are applied to loops on the needle
+-- Due to the overloading of the word stitch these loops are also
+-- refered to as stitches.
+-- Wrap includes the basic stitches with the side information
+-- The name refers to wrapping the yarn around the needle during the stitch
+-- Dec is a decrease stitch defined above
+-- Inc is a increase stitch defined above
+-- Cross is a cable stitch defined above
+-- Slip is moving the stitch from the left needle to the right needle
+-- without any other actions taken on it
 data Action = Wrap Stitch
             | Dec Decrease
             | Inc Increase
@@ -66,6 +113,16 @@ instance Show Action where
     show (Cross c) = show c
     show Slip = "sl"
 
+
+-- This data type represents the loops on the needle also
+-- confusingly referred to as 'stitches'.
+-- When on a needle either the 'knit' side is up or the 'purl' side
+-- Stitches created with YarnOver or yo will not have a knit or purl side
+-- and they are their own stitch type
+-- OnNeedle is contextual, when the fabric is reversed the opposite stitches
+-- will be facing up
+-- The preferred use is to always have the 'Front' being represented
+-- This is the assumption when displaying OnNeedle stitch
 data OnNeedle = On Base
               | Yo deriving Eq
 
@@ -74,19 +131,30 @@ instance Show OnNeedle where
     show (On Purl) = "o"
     show Yo = "/"
 
-data Row = Row Pattern
-         | Round Pattern deriving Eq
+-- A 'Row' is knit back and forth
+-- A 'Round' is knit continuously in a round
+-- Row needs a side while Round implies that
+-- the sequence contains the front side stitches
+-- TODO: Should these be the same datatype?
+data Row = Row Side Sequence
+         | Round Sequence deriving Eq
 
 instance Show Row where
-    show (Row p) = show p
+    -- TODO: use side information to always display 'front'
+    show (Row _ p) = show p
     show (Round p) = show p
 
 
-newtype Pattern = Pattern [Action] deriving Eq
+-- A sequence is just that, a sequence of actions (stitches) to be
+-- taken on the loops (stitches) on the needle
+newtype Sequence = Sequence [Action] deriving Eq
 
+-- Pattern is a list of rows which represent a single pass
+-- across all loops (stitches) on the needles currently
+data Pattern = Pattern [Row] deriving (Eq, Show)
 
-instance Show Pattern where
-    show (Pattern pl) = concat (fmap show pl)
+instance Show Sequence where
+    show (Sequence pl) = concat (fmap show pl)
 
 newtype Fabric = Fabric [[OnNeedle]] deriving Eq
 
@@ -96,6 +164,10 @@ instance Show Fabric where
         where
             oneRow = (concat (fmap show h)) ++ "\n"
 
+reverseRow :: Row -> Row
+reverseRow (Row s p) = undefined
+-- TODO: Does supporting this make sense?
+reverseRow (Round p) = undefined
 
 continueInPattern :: [Row] -> Int -> [Row]
 continueInPattern r times = concat (take times (repeat r))
@@ -106,12 +178,12 @@ continueInPattern r times = concat (take times (repeat r))
 -- other stitches will be knit or purled depending on the side
 -- of the row (knit for front and purl for back)
 -- Give pattern and the side of the that pattern
-nextRow :: Pattern -> Side -> Row
-nextRow pat side = Row (Pattern (nextRow'' pat))
+nextRow :: Sequence -> Side -> Row
+nextRow pat side = Row (otherSide side) (Sequence (nextRow'' pat))
     where
         defaultStitch = case side of Front -> (Wrap (Stitch Knit Front))
                                      Back -> (Wrap (Stitch Purl Front))
-        nextRow'' (Pattern p) = nextRow' (reverse p)
+        nextRow'' (Sequence p) = nextRow' (reverse p)
         nextRow' [] = []
         nextRow' (h:tl) = let cont = nextRow' tl in
             case h of
@@ -122,10 +194,10 @@ nextRow pat side = Row (Pattern (nextRow'' pat))
 
 -- Knit all knit stitches and Purl all purl stitches
 -- and knit all 'unknown' stitches
-nextRound :: Pattern -> Row
-nextRound pat = Round (Pattern (nextRound'' pat))
+nextRound :: Sequence -> Row
+nextRound pat = Round (Sequence (nextRound'' pat))
     where
-        nextRound'' (Pattern p) = nextRound' p
+        nextRound'' (Sequence p) = nextRound' p
         nextRound' [] = []
         nextRound' (h:tl) = let cont = nextRound' tl in
             case h of
@@ -142,18 +214,21 @@ class Show a => KnitAction a where
     uses :: a -> Int
     makes :: a -> Int
     doAction :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
+    flipAction :: a -> a
 
 
-instance KnitAction Pattern where
-    uses (Pattern pat) = sum (fmap uses pat)
-    makes (Pattern pat) = sum (fmap makes pat)
+instance KnitAction Sequence where
+    uses (Sequence pat) = sum (fmap uses pat)
+    makes (Sequence pat) = sum (fmap makes pat)
 
-    doAction [] (Pattern []) = ([], [])
-    doAction prev (Pattern (h:tl)) = (rem, firstOut++restOut)
+    doAction [] (Sequence []) = ([], [])
+    doAction prev (Sequence (h:tl)) = (rem, firstOut++restOut)
         where
             (rem1, firstOut) = doAction prev h
-            (rem, restOut) = doAction rem1 (Pattern tl)
+            (rem, restOut) = doAction rem1 (Sequence tl)
     doAction _ _ = error "Previous row doesn't match up with pattern"
+
+    flipAction (Sequence pat) = Sequence (fmap flipAction pat)
 
 
 instance KnitAction Action where
@@ -176,6 +251,12 @@ instance KnitAction Action where
     doAction (n:tl) Slip = (tl, [n])
     doAction p a = error ("Failed to do "++(show a)++" on "++(show p)++".")
 
+    flipAction (Wrap b) = Wrap undefined
+    flipAction (Dec dec) = Dec $ flipAction dec
+    flipAction (Inc inc) = Inc $ flipAction inc
+    flipAction (Cross cab) = Cross $ flipAction cab
+    flipAction a = a
+
 instance KnitAction Decrease where
     uses (Tog n _) = n
     uses (PassStitchOver _ a) = 1 + (uses a)
@@ -192,6 +273,11 @@ instance KnitAction Decrease where
     doAction (_:tl) (Psso a) = doAction tl a
     doAction prev (SlipStitch n s) = (drop n prev, [stitch s])
 
+    flipAction (Tog n s) = SlipStitch n (undefined)
+    flipAction (PassStitchOver _ a) = undefined
+    flipAction (Psso a) = undefined
+    flipAction (SlipStitch n s) = Tog n (undefined)
+
 
 instance KnitAction Increase where
     uses YarnOver = 0
@@ -206,6 +292,8 @@ instance KnitAction Increase where
     doAction prev (Between s) = (prev, [stitch s])
     doAction (_:tl) (IntoOneStitch sl) = (tl, fmap stitch sl)
 
+    flipAction _ = undefined
+
 
 instance KnitAction Cable where
     uses (Hold _ c1 c2) = (uses c1) + (uses c2)
@@ -215,12 +303,14 @@ instance KnitAction Cable where
             (remain, heldOut) = doAction prev c1
             (lastRem, fstOut) = doAction remain c2
 
+    flipAction _ = undefined
+
 knitPattern :: KnitAction a => [OnNeedle] -> [a] -> [OnNeedle]
 knitPattern [] [] = []
 knitPattern lastRow (act:al) = fstAct ++ (knitPattern afterFst al)
     where
         (afterFst, fstAct) = doAction lastRow act
-knitPattern _ _ = error "Pattern didn't fit on stitches"
+knitPattern _ _ = error "Sequence didn't fit on stitches"
 
 
 inverse :: OnNeedle -> OnNeedle
@@ -231,21 +321,22 @@ inverse yo = yo
 backNeedle :: [OnNeedle] -> [OnNeedle]
 backNeedle = fmap inverse
 
-flipFabric :: Side -> Side
-flipFabric Front = Back
-flipFabric Back = Front
+otherSide :: Side -> Side
+otherSide Front = Back
+otherSide Back = Front
 
 
-makeFabric :: Side -> [OnNeedle] -> [Row] -> Fabric
+{-
+makeFabric :: Side -> [OnNeedle] -> Pattern -> Fabric
 makeFabric s on rs = Fabric (makeFabric' s on rs)
     where
         makeFabric' Front onNeedle [] = [onNeedle]
         makeFabric' Back onNeedle [] = [reverse (backNeedle onNeedle)]
         makeFabric' side onNeedle (r:pattern) = (front side onNeedle) : (rest r)
             where
-                rest (Row (Pattern row)) = makeFabric' (flipFabric side) (knitPattern (reverse (backNeedle onNeedle)) row) pattern
-                rest (Round (Pattern round)) = makeFabric' side (knitPattern onNeedle round) pattern
+                rest (Row (Sequence row)) = makeFabric' (otherSide side) (knitPattern (reverse (backNeedle onNeedle)) row) pattern
+                rest (Round (Sequence round)) = makeFabric' side (knitPattern onNeedle round) pattern
                 front Front on = on
                 front Back on = reverse (backNeedle on)
 
-
+-}
