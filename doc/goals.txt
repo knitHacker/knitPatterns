@@ -1,0 +1,23 @@
+What I want it to do 
+- store patterns
+- input patterns
+    + easly 
+    + intuitively
+- display patterns
+    + succingtly
+    + interactively?
+    + realistically display fabric
+- generate more pattern
+    + more rows
+    + more repeats in a row
+- compose patterns
+    + more than one pattern in a row
+    + 
+- encode size into patterns
+- encode color patterns 
+- encode lace patterns
+- encode increases and decreases
+- round vs. back and forth
+- whole pattern representation 
+    + multiple pieces of fabric
+    + instructions / sewing

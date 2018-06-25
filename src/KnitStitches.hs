@@ -248,4 +248,3 @@ makeFabric s on rs = Fabric (makeFabric' s on rs)
                 front Front on = on
                 front Back on = reverse (backNeedle on)
 
-
