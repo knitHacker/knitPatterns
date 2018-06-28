@@ -23,8 +23,8 @@ castOn :: Int -> [OnNeedle]
 castOn num = take num (repeat (On Purl))
 
 
-rib :: Int -> Int -> Pattern
-rib bet total = Pattern (rib' bet total)
+rib :: Int -> Int -> Sequence
+rib bet total = Sequence (rib' bet total)
     where
         rib' bet 0 = []
         rib' bet total = if (bet*2) < total then (k bet) ++ (p bet) ++ (rib' bet (total - (bet*2)))
@@ -33,18 +33,18 @@ rib bet total = Pattern (rib' bet total)
 
 
 stockinetteStitch :: Bool -> Int -> Int -> [Row]
-stockinetteStitch backAndForth width rows = if backAndForth then (nextRow Front rows)
-                                            else take rows (fmap Round (fmap Pattern (repeat (k width))))
+stockinetteStitch backAndForth width rows = if backAndForth then (nextRow' Front rows)
+                                            else take rows (fmap Round (fmap Sequence (repeat (k width))))
     where
-        nextRow _ 0 = []
-        nextRow Front rows = (Row (Pattern (k width))) : (nextRow Back (rows - 1))
-        nextRow Back rows = (Row (Pattern (p width))) : (nextRow Front (rows - 1))
+        nextRow' _ 0 = []
+        nextRow' Front rows = (Row Front (Sequence (k width))) : (nextRow' Back (rows - 1))
+        nextRow' Back rows = (Row Back (Sequence (p width))) : (nextRow' Front (rows - 1))
 
 
 
 leftMoveCable :: Int -> Int -> Cable
-leftMoveCable kn pn = Hold Front (Pattern (k kn)) (Pattern (p pn))
+leftMoveCable kn pn = Hold Front (Sequence (k kn)) (Sequence (p pn))
 
 rightMoveCable :: Int -> Int -> Cable
-rightMoveCable kn pn = Hold Back (Pattern (p pn)) (Pattern (k kn))
+rightMoveCable kn pn = Hold Back (Sequence (p pn)) (Sequence (k kn))
 
