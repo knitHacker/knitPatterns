@@ -127,6 +127,10 @@ readPattern = do
                 else readRows (Just Back) Nothing
         return (name, rows)
 
+stitchesMatch :: Sequence -> Maybe Sequence -> Bool
+stitchesMatch _ Nothing = True
+stitchesMatch seq (Just oldSeq) = (uses seq) == (makes oldSeq)
+
 
 readRows maybeSide maybeLast = do
     putStr "Enter pattern > "
@@ -139,17 +143,13 @@ readRows maybeSide maybeLast = do
             return []
         Right pat -> do
             let seq = Sequence pat in
-                let newStitches = uses seq in
-                    let outStitches = case maybeLast of
-                                        (Just oldSeq) -> makes oldSeq
-                                        Nothing -> newStitches in
-                                            if outStitches /= newStitches then do
-                                            putStrLn "New row stitches don't match last row"
-                                            readRows maybeSide maybeLast
-                                            else case maybeSide of
-                                                Just side -> do
-                                                    nextRows <- readRows (Just (otherSide side)) (Just seq)
-                                                    return ((Row side seq) : nextRows)
-                                                Nothing -> do
-                                                    nextRows <- readRows Nothing (Just seq)
-                                                    return ((Round seq) : nextRows)
+                if not (stitchesMatch seq maybeLast) then do
+                    putStrLn "New row stitches don't match last row"
+                    readRows maybeSide maybeLast
+                else case maybeSide of
+                        Just side -> do
+                            nextRows <- readRows (Just (otherSide side)) (Just seq)
+                            return ((Row side seq) : nextRows)
+                        Nothing -> do
+                            nextRows <- readRows Nothing (Just seq)
+                            return ((Round seq) : nextRows)
