@@ -118,17 +118,17 @@ readPattern = do
     name <- getLine
     round <- confirm "Is this pattern for a round?"
     if round then do
-        rows <- readRows Nothing
+        rows <- readRows Nothing Nothing
         return (name, rows)
     else do
         rs <- confirm "Does the pattern start on the RS?"
         rows <- if rs
-                then readRows (Just Front)
-                else readRows (Just Back)
+                then readRows (Just Front) Nothing
+                else readRows (Just Back) Nothing
         return (name, rows)
 
 
-readRows maybeSide= do
+readRows maybeSide maybeLast = do
     putStr "Enter pattern > "
     hFlush stdout
     line <- getLine
@@ -139,10 +139,17 @@ readRows maybeSide= do
             return []
         Right pat -> do
             let seq = Sequence pat in
-                case maybeSide of
-                    Just side -> do
-                        nextRows <- readRows (Just (otherSide side))
-                        return ((Row side seq) : nextRows)
-                    Nothing -> do
-                        nextRows <- readRows Nothing
-                        return ((Round seq) : nextRows)
+                let newStitches = uses seq in
+                    let outStitches = case maybeLast of
+                                        (Just oldSeq) -> makes oldSeq
+                                        Nothing -> newStitches in
+                                            if outStitches /= newStitches then do
+                                            putStrLn "New row stitches don't match last row"
+                                            readRows maybeSide maybeLast
+                                            else case maybeSide of
+                                                Just side -> do
+                                                    nextRows <- readRows (Just (otherSide side)) (Just seq)
+                                                    return ((Row side seq) : nextRows)
+                                                Nothing -> do
+                                                    nextRows <- readRows Nothing (Just seq)
+                                                    return ((Round seq) : nextRows)
