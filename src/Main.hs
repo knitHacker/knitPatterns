@@ -6,16 +6,8 @@ import Data.Char
 import KnitStitches
 import StandardStitches
 
--- patternToSaveString :: [Row] -> String
--- patternToSaveString [] = ""
--- patternToSaveString (h:tl) =
 
-writePattern :: String -> [Row] -> IO ()
-writePattern fileName [] = writeFile fileName ""
-writePattern fileName pattern = writeFile fileName (show pattern)
-
-
-menu :: [String] -> IO Int
+menu :: [String] -> IO String
 menu [] = undefined
 menu options = do
     putStrLn ""
@@ -29,8 +21,11 @@ menu options = do
             putStrLn ""
             strChoice <- getLine
             let choice = readMaybe strChoice :: Maybe Int in case choice of
-                Just n -> return n
-                _ -> return 0
+                (Just n) -> if n < 1 || n > length options then do
+                                putStrLn "Not an option"
+                                menu options
+                            else return (options !! (n - 1))
+                _ -> menu options
         menu' (s:tl) n = do
             putStrLn ((show n) ++ ") " ++ s)
             menu' tl (n+1)
@@ -39,7 +34,6 @@ options = [
     "Input",
     "List",
     "Write",
-    "Load",
     "Show",
     "Quit"]
 
@@ -55,20 +49,25 @@ getLeadingInt str = let (digits, left) = getLeadingInt' str
             then let (nextDigs, str) = getLeadingInt' tl in ((digitToInt h) : nextDigs, str)
             else ([], s)
 
+
+nextDigit :: String -> (Int, String)
+nextDigit str = if ((length str) > 0) && isDigit (head str)
+                then getLeadingInt str
+                else (1, str)
+
 parsePattern :: String -> Either Char [Action]
 parsePattern [] = Right []
-parsePattern ('k': []) = Right (k 1)
-parsePattern ('p': []) = Right (p 1)
-parsePattern ('k' : tl) = if isDigit (head tl) then let (num, left) = (getLeadingInt tl)
-                                                    in ((k num)++) <$> (parsePattern left)
-                                               else (knit:) <$> (parsePattern tl)
-parsePattern ('p' : tl) = if isDigit (head tl) then let (num, left) = (getLeadingInt tl)
-                                                    in ((p num) ++) <$> (parsePattern left)
-                                               else (purl:) <$> (parsePattern tl)
+parsePattern ('k' : tl) = let (num, left) = nextDigit tl
+                            in ((k num)++) <$> (parsePattern left)
+parsePattern ('p' : tl) = let (num, left) = nextDigit tl
+                            in (((p num) ++) <$> (parsePattern left))
+parsePattern ('y' : 'o' : tl) = let (num, left) = nextDigit tl
+                                    in (((Inc YarnOver) :) <$> (parsePattern left))
+parsePattern (' ' : tl) = parsePattern tl
 parsePattern (o:tl) = Left o
 
 main = do
-    putStrLn "Test"
+    putStrLn "Knitting Pattern Interface"
     loop
 
 loop = loop' Map.empty
@@ -76,24 +75,33 @@ loop = loop' Map.empty
 loop' :: (Map String [Row]) -> IO ()
 loop' patterns = do
     choice <- menu options
-    if choice < 1 || choice > length options then do
-        putStrLn "Not an option"
-        loop' patterns
-    else do
-        putStrLn ("Selected " ++ (show choice) ++ ") " ++ (options !! (choice - 1)) ++ "\n")
-        if choice == length options then putStrLn "Good Bye"
-                                    else case options !! (choice - 1) of
-                                        "Input" -> do
-                                            (name, rows) <- readPattern
-                                            putStrLn name
-                                            putStrLn (show rows)
-                                            if (length rows) == 0 then loop' patterns
-                                            else loop' (insert name rows patterns)
-                                        "List" -> do
-                                            putStrLn "Loaded Patterns:"
-                                            mapM_ putStrLn (Map.keys patterns)
-                                            loop' patterns
-                                        _ -> loop' patterns
+    putStrLn ("Selected " ++ choice ++ "\n")
+    case choice of
+        "Input" -> do
+            (name, rows) <- readPattern
+            putStrLn name
+            if (length rows) == 0 then loop' patterns
+            else loop' (insert name rows patterns)
+        "List" -> do
+            putStrLn "Loaded Patterns:"
+            mapM_ putStrLn (Map.keys patterns)
+            loop' patterns
+        "Show" -> do
+            showPattern patterns
+        "Quit" -> return ()
+        _ -> loop' patterns
+
+
+showPattern patterns = do
+    putStrLn "Choose a pattern to display"
+    choice <- menu (Map.keys patterns)
+    case (Map.lookup choice patterns) of
+        (Just p) -> do
+            mapM_ (putStrLn . show) p
+            loop' patterns
+        Nothing -> do
+            putStrLn "That is not a pattern"
+            showPattern patterns
 
 
 confirm quest = do
