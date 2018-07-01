@@ -7,8 +7,9 @@ import KnitStitches
 import StandardStitches
 
 
-menu :: [String] -> IO String
-menu [] = undefined
+menu :: [String] -> IO (Maybe String)
+menu [] = do
+    return Nothing
 menu options = do
     putStrLn ""
     putStrLn "----------------"
@@ -24,7 +25,7 @@ menu options = do
                 (Just n) -> if n < 1 || n > length options then do
                                 putStrLn "Not an option"
                                 menu options
-                            else return (options !! (n - 1))
+                            else return (Just (options !! (n - 1)))
                 _ -> menu options
         menu' (s:tl) n = do
             putStrLn ((show n) ++ ") " ++ s)
@@ -55,9 +56,16 @@ stitchDescriptions = [
     "psso - Slip 1 stitch knitwise, knit 1, slip slipped stitch over",
     "k<NUM>tog or p<NUM>tog - Knit or purl NUM stitches togehter",
     "m1 - Knit into space between stitches",
+    "m1r - Right leaning knit increase",
+    "m1l - Left leaning knit increase",
+    "m1p - Purl into space between stitches",
+    "m1rp - Right leaning purl increase",
+    "m1lp - Left leaning purl increase",
     "kfb - Knit through front and back",
+    "pfb - Purl through front and back",
     "ssk - Slip, slip, knit into 2 slipped stitches",
-    "sl or sl<NUM> - Slip 1 stitch or slip NUM stitch"]
+    "sl st or sl or sl<NUM> - Slip 1 stitch or slip NUM stitch",
+    "sl<NUM>k or sl<NUM>p - Slip NUM knitwise or purlwise"]
 
 
 getLeadingInt :: String -> (Int, String)
@@ -89,14 +97,30 @@ parseStitch stitch str = let (num, left) = nextDigit str
                                     Nothing -> let stitches = Prelude.take num (repeat (Wrap stitch)) in
                                         ((stitches ++) <$> (parsePattern left))
 
+getSlipwise :: String -> (Base, String)
+getSlipwise ('k' : ' ' : tl) = (Knit, tl)
+getSlipwise ('p' : ' ' : tl) = (Purl, tl)
+getSlipwise str = (Purl, str)
+
 parsePattern :: String -> Either Char [Action]
 parsePattern [] = Right []
-parsePattern ('s' : 'l' : tl) = let (num, left) = nextDigit tl in
-                                    ((Prelude.take num (repeat Slip)) ++) <$> (parsePattern tl)
+parsePattern ('s' : 'l' : ' ' : 's' : 't' : ' ' : tl) = ((Slip Purl) :) <$> (parsePattern tl)
+parsePattern ('s' : 'l' : tl) = let (num, left) = nextDigit tl
+                                    (base, lastLeft) = getSlipwise left in
+                                    ((Prelude.take num (repeat (Slip base))) ++) <$> (parsePattern lastLeft)
 parsePattern ('s' : 's' : 'k' : tl) = ((Dec (SlipStitch 2 (Stitch Knit Front))):) <$> (parsePattern tl)
 parsePattern ('k' : 'f' : 'b' : tl) = ((Inc (IntoOneStitch [Stitch Knit Front, Stitch Knit Back])) :) <$> (parsePattern tl)
-parsePattern ('m' : '1' : tl) = ((Inc (Between (Stitch Knit Front))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : 'k' : ' ' : tl) = ((Inc (Between Front (Stitch Knit Front))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : 'p' : ' ' : tl) = ((Inc (Between Front (Stitch Purl Front))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : 'l' : 'p' : ' ' : tl) = ((Inc (Between Front (Stitch Purl Back))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : 'r' : 'p' : ' ' : tl) = ((Inc (Between Back (Stitch Purl Front))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : 'l' : 'k' : ' ' : tl) = ((Inc (Between Front (Stitch Knit Back))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : 'r' : 'k' : ' ' : tl) = ((Inc (Between Back (Stitch Knit Front))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : 'l' : tl) = ((Inc (Between Front (Stitch Knit Back))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : 'r' : tl) = ((Inc (Between Back (Stitch Knit Front))) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : tl) = ((Inc (Between Front (Stitch Knit Front))) :) <$> (parsePattern tl)
 parsePattern ('p' : 's' : 's' : 'o' : tl) = ((Dec (Psso knit)) :) <$> (parsePattern tl)
+parsePattern ('p' : 'f' : 'b' : tl) = ((Inc (IntoOneStitch [Stitch Purl Front, Stitch Purl Back])) :) <$> (parsePattern tl)
 parsePattern ('k' : tl) = parseStitch (Stitch Knit Front) tl
 parsePattern ('p' : tl) = parseStitch (Stitch Purl Front) tl
 parsePattern ('y' : 'o' : tl) = let (num, left) = nextDigit tl
@@ -113,36 +137,39 @@ loop = loop' Map.empty
 loop' :: (Map String [Row]) -> IO ()
 loop' patterns = do
     choice <- menu options
-    putStrLn ("Selected " ++ choice ++ "\n")
     case choice of
-        "Input" -> do
+        (Just "Input") -> do
             (name, rows) <- readPattern
             putStrLn name
             if (length rows) == 0 then loop' patterns
             else loop' (insert name rows patterns)
-        "Supported Stitches" -> do
+        (Just "Supported Stitches") -> do
             mapM_ putStrLn stitchDescriptions
             loop' patterns
-        "List" -> do
+        (Just "List") -> do
             putStrLn "Loaded Patterns:"
             mapM_ putStrLn (Map.keys patterns)
             loop' patterns
-        "Show" -> do
+        (Just "Show") -> do
             showPattern patterns
-        "Quit" -> return ()
+        (Just "Quit") -> return ()
         _ -> loop' patterns
 
 
 showPattern patterns = do
     putStrLn "Choose a pattern to display"
     choice <- menu (Map.keys patterns)
-    case (Map.lookup choice patterns) of
-        (Just p) -> do
-            mapM_ (putStrLn . show) p
-            loop' patterns
+    case choice of
+        (Just c) -> case (Map.lookup c patterns) of
+                        (Just p) -> do
+                            mapM_ (putStrLn . show) p
+                            loop' patterns
+                        Nothing -> do
+                            putStrLn "That is not a pattern"
+                            showPattern patterns
         Nothing -> do
-            putStrLn "That is not a pattern"
-            showPattern patterns
+            putStrLn "No patterns to display"
+            loop' patterns
 
 
 confirm quest = do
@@ -184,18 +211,17 @@ readRows maybeSide last = do
     hFlush stdout
     line <- getLine
     if (length line) == 0 then return []
-    else let pattern = parsePattern line in case pattern of
+    else let pattern = parsePattern (Prelude.map toLower line) in case pattern of
         Left c -> do
             putStrLn (c : " is not a parseable character")
             readRows maybeSide last
         Right pat -> do
-            let seq = Sequence pat
-                (rest, onNeedle) = doAction last seq in
+            let seq = Sequence pat in
                 case checkNewRow last seq of
                     Left str -> do
                         putStrLn str
                         readRows maybeSide last
-                    Right _ -> do
+                    Right onNeedle -> do
                         case maybeSide of
                             Just side -> do
                                 nextRows <- readRows (Just (otherSide side)) onNeedle

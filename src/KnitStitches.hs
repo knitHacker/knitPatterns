@@ -71,12 +71,12 @@ instance Show Decrease where
 -- stitch and the next stitch will determine if it is a left or right leaning make
 -- IntoOneStitch is a list of stitches to be done into the next loop on the left needle
 data Increase = YarnOver
-              | Between Stitch
+              | Between Side Stitch
               | IntoOneStitch [Stitch] deriving Eq
 
 instance Show Increase where
     show YarnOver = "yo"
-    show (Between s) = (show s) ++ " into space between stitches"
+    show (Between side s) = "insert LH needle into space into stitches from the "++(show side)++" and "++(show s)
     show (IntoOneStitch sl) = (show (fmap Wrap sl)) ++ " into the next st"
 
 
@@ -104,14 +104,16 @@ data Action = Wrap Stitch
             | Dec Decrease
             | Inc Increase
             | Cross Cable
-            | Slip deriving Eq
+            | Slip Base deriving Eq
 
 instance Show Action where
     show (Wrap s) = show s
     show (Dec d) = show d
     show (Inc i) = show i
     show (Cross c) = show c
-    show Slip = "sl"
+    show (Slip b) = "sl " ++ case b of
+                                Knit -> "knitwise"
+                                Purl -> "purlwise"
 
 
 -- This data type represents the loops on the needle also
@@ -157,16 +159,20 @@ instance Show Sequence where
     show (Sequence pl) = concat (fmap show pl)
 
 
-checkNewRow :: [OnNeedle] -> Sequence -> Either String Sequence
+checkNewRow :: [OnNeedle] -> Sequence -> Either String [OnNeedle]
 checkNewRow lastRow seq@(Sequence nextRow) = do
                                                 nextRow <- checkLength seq
                                                 nextRow <- checkFirst nextRow
-                                                Sequence <$> checkInto nextRow
+                                                endSeq <- Sequence <$> checkInto nextRow
+                                                (rest, result) <- doAction lastRow endSeq
+                                                case rest of
+                                                    [] -> return result
+                                                    _ -> Left "Actions didn't match up with previous stitches."
     where
         checkLength row = if (length lastRow) == (uses row) then Right row
                           else Left "New row has wrong number of stitches"
         checkFirst (Sequence (Inc (YarnOver) : _)) = Left "Cannot do yarn over for first stitch in a row"
-        checkFirst (Sequence (Inc (Between _) : _)) = Left "Cannot knit between two stitches on first stitch"
+        checkFirst (Sequence (Inc (Between _ _) : _)) = Left "Cannot knit between two stitches on first stitch"
         checkFirst (Sequence row) = Right row
         checkInto [] = Right []
         checkInto (s@(Inc (IntoOneStitch sts)) : tl) = if checkAlternating sts
@@ -179,14 +185,15 @@ checkAlternating [] = False
 checkAlternating (_ : []) = True
 checkAlternating (Stitch b1 s1 : s@(Stitch b2 s2) : tl) = (b1 /= b2 || s1 /= s2) && (checkAlternating (s:tl))
 
-matchStitchToActions :: [OnNeedle] -> Sequence -> Maybe [([OnNeedle], Action)]
+matchStitchToActions :: [OnNeedle] -> Sequence -> Either String [([OnNeedle], Action)]
 matchStitchToActions oN (Sequence sts) = matchStitchToActions' oN sts
     where
-        matchStitchToActions' [] [] = Just []
-        matchStitchToActions' _ [] = Nothing
-        matchStitchToActions' [] _ = Nothing
-        matchStitchToActions' oN (s:tl) = let (rest, needle) = doAction oN s in
-                                            ((needle, s) :) <$> (matchStitchToActions' rest tl)
+        matchStitchToActions' [] [] = Right []
+        matchStitchToActions' _ [] = Left "Stitches on needle don't match up wtih actions. Need more actions."
+        matchStitchToActions' [] _ = Left "Stitches on needle don't match up wtih actions. Too many actions."
+        matchStitchToActions' oN (s:tl) = case doAction oN s of
+                                            Right (rest, needle) -> ((needle, s) :) <$> (matchStitchToActions' rest tl)
+                                            Left err -> Left err
 
 newtype Fabric = Fabric [[OnNeedle]] deriving Eq
 
@@ -245,7 +252,7 @@ stitch (Stitch b _) = On b
 class Show a => KnitAction a where
     uses :: a -> Int
     makes :: a -> Int
-    doAction :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
+    doAction :: [OnNeedle] -> a -> Either String ([OnNeedle], [OnNeedle])
     flipAction :: a -> a
 
 
@@ -253,12 +260,12 @@ instance KnitAction Sequence where
     uses (Sequence pat) = sum (fmap uses pat)
     makes (Sequence pat) = sum (fmap makes pat)
 
-    doAction [] (Sequence []) = ([], [])
-    doAction prev (Sequence (h:tl)) = (rem, firstOut++restOut)
-        where
-            (rem1, firstOut) = doAction prev h
-            (rem, restOut) = doAction rem1 (Sequence tl)
-    doAction _ _ = error "Previous row doesn't match up with pattern"
+    doAction [] (Sequence []) = Right ([], [])
+    doAction prev (Sequence (h:tl)) = do
+                                        (rem1, firstOut) <- doAction prev h
+                                        (rem, restOut) <- doAction rem1 (Sequence tl)
+                                        return (rem, firstOut++restOut)
+    doAction _ _ = Left "Previous row doesn't match up with pattern"
 
     flipAction (Sequence pat) = Sequence (fmap flipAction pat)
 
@@ -268,20 +275,20 @@ instance KnitAction Action where
     uses (Dec dec) = uses dec
     uses (Inc inc) = uses inc
     uses (Cross cab) = uses cab
-    uses Slip = 1
+    uses (Slip _) = 1
 
     makes (Wrap _) = 1
     makes (Dec dec) = makes dec
     makes (Inc inc) = makes inc
     makes (Cross cab) = makes cab
-    makes Slip = 1
+    makes (Slip _) = 1
 
-    doAction (_:tl) (Wrap s) = (tl, [stitch s])
+    doAction (_:tl) (Wrap s) = Right (tl, [stitch s])
     doAction prev (Dec dec) = doAction prev dec
     doAction prev (Inc inc) = doAction prev inc
     doAction prev (Cross cab) = doAction prev cab
-    doAction (n:tl) Slip = (tl, [n])
-    doAction p a = error ("Failed to do "++(show a)++" on "++(show p)++".")
+    doAction (n:tl) (Slip _) = Right (tl, [n])
+    doAction p a = Left ("Failed to do "++(show a)++" on "++(show p)++".")
 
     flipAction (Wrap b) = Wrap undefined
     flipAction (Dec dec) = Dec $ flipAction dec
@@ -300,10 +307,10 @@ instance KnitAction Decrease where
     makes (Psso a) = makes a
     makes (SlipStitch _ _) = 1
 
-    doAction prev (Tog n s) = (drop n prev, [stitch s])
+    doAction prev (Tog n s) = Right (drop n prev, [stitch s])
     doAction (_:tl) (PassStitchOver _ a) = doAction tl a
     doAction (_:tl) (Psso a) = doAction tl a
-    doAction prev (SlipStitch n s) = (drop n prev, [stitch s])
+    doAction prev (SlipStitch n s) = Right (drop n prev, [stitch s])
 
     flipAction (Tog n s) = SlipStitch n (undefined)
     flipAction (PassStitchOver _ a) = undefined
@@ -313,16 +320,16 @@ instance KnitAction Decrease where
 
 instance KnitAction Increase where
     uses YarnOver = 0
-    uses (Between _) = 0
+    uses (Between _ _) = 0
     uses (IntoOneStitch _) = 1
 
     makes YarnOver = 1
-    makes (Between s) = 1
+    makes (Between _ s) = 1
     makes (IntoOneStitch sl) = length sl
 
-    doAction prev YarnOver = (prev, [Yo])
-    doAction prev (Between s) = (prev, [stitch s])
-    doAction (_:tl) (IntoOneStitch sl) = (tl, fmap stitch sl)
+    doAction prev YarnOver = Right (prev, [Yo])
+    doAction prev (Between _ s) = Right (prev, [stitch s])
+    doAction (_:tl) (IntoOneStitch sl) = Right (tl, fmap stitch sl)
 
     flipAction _ = undefined
 
@@ -330,19 +337,19 @@ instance KnitAction Increase where
 instance KnitAction Cable where
     uses (Hold _ c1 c2) = (uses c1) + (uses c2)
     makes (Hold _ c1 c2) = (makes c1) + (makes c2)
-    doAction prev (Hold _ c1 c2) = (lastRem, fstOut ++ heldOut)
-        where
-            (remain, heldOut) = doAction prev c1
-            (lastRem, fstOut) = doAction remain c2
-
+    doAction prev (Hold _ c1 c2) = do
+                                    (remain, heldOut) <- doAction prev c1
+                                    (lastRem, fstOut) <- doAction remain c2
+                                    return (lastRem, fstOut ++ heldOut)
     flipAction _ = undefined
 
-knitPattern :: KnitAction a => [OnNeedle] -> [a] -> [OnNeedle]
-knitPattern [] [] = []
-knitPattern lastRow (act:al) = fstAct ++ (knitPattern afterFst al)
-    where
-        (afterFst, fstAct) = doAction lastRow act
-knitPattern _ _ = error "Sequence didn't fit on stitches"
+knitPattern :: KnitAction a => [OnNeedle] -> [a] -> Either String [OnNeedle]
+knitPattern [] [] = Right []
+knitPattern lastRow (act:al) = do
+                                (afterFst, fstAct) <- doAction lastRow act
+                                onNeedle <- knitPattern afterFst al
+                                return (fstAct ++ onNeedle)
+knitPattern _ _ = Left "Sequence didn't fit on stitches"
 
 
 inverse :: OnNeedle -> OnNeedle
