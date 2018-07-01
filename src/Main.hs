@@ -187,17 +187,19 @@ readRows maybeSide last = do
     else let pattern = parsePattern line in case pattern of
         Left c -> do
             putStrLn (c : " is not a parseable character")
-            return []
+            readRows maybeSide last
         Right pat -> do
             let seq = Sequence pat
                 (rest, onNeedle) = doAction last seq in
-                if (length rest) /= 0 then do
-                    putStrLn "New row stitches don't match last row"
-                    readRows maybeSide last
-                else case maybeSide of
-                        Just side -> do
-                            nextRows <- readRows (Just (otherSide side)) seq
-                            return ((Row side seq) : nextRows)
-                        Nothing -> do
-                            nextRows <- readRows Nothing seq
-                            return ((Round seq) : nextRows)
+                case checkNewRow last seq of
+                    Left str -> do
+                        putStrLn str
+                        readRows maybeSide last
+                    Right _ -> do
+                        case maybeSide of
+                            Just side -> do
+                                nextRows <- readRows (Just (otherSide side)) onNeedle
+                                return ((Row side seq) : nextRows)
+                            Nothing -> do
+                                nextRows <- readRows Nothing onNeedle
+                                return ((Round seq) : nextRows)
