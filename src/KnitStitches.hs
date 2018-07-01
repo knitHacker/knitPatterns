@@ -156,6 +156,16 @@ data Pattern = Pattern [Row] deriving (Eq, Show)
 instance Show Sequence where
     show (Sequence pl) = concat (fmap show pl)
 
+
+checkNewRow :: [OnNeedle] -> Sequence -> Either String Sequence
+checkNewRow lastRow (Sequence nextRow) = undefined
+    where
+        checkLength row = if (length lastRow) == (uses row) then Right row
+                          else Left "New row has wrong number of stitches"
+        checkFirst (Inc (YarnOver) : _) = Left "Cannot do yarn over for first stitch in a row"
+        checkFirst (Inc (Between _) : _) = Left "Cannot knit between two stitches on first stitch"
+        checkFirst row = Right row
+
 newtype Fabric = Fabric [[OnNeedle]] deriving Eq
 
 instance Show Fabric where
