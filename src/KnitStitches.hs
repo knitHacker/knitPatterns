@@ -153,7 +153,16 @@ newtype Sequence = Sequence [Action] deriving Eq
 
 -- Pattern is a list of rows which represent a single pass
 -- across all loops (stitches) on the needles currently
-data Pattern = Pattern [Row] deriving (Eq, Show)
+data Pattern = Pattern { name :: String
+                       , castOn :: [OnNeedle]
+                       , rows :: [Row]
+                       } deriving Eq
+
+instance Show Pattern where
+    show pattern = (name pattern) ++ "\n" ++ (case (makeFabric pattern) of
+                                                Just f -> show f
+                                                Nothing -> "Pattern cannot be shown")
+
 
 instance Show Sequence where
     show (Sequence pl) = concat (fmap show pl)
@@ -365,17 +374,21 @@ otherSide Front = Back
 otherSide Back = Front
 
 
-{-
-makeFabric :: Side -> [OnNeedle] -> Pattern -> Fabric
-makeFabric s on rs = Fabric (makeFabric' s on rs)
-    where
-        makeFabric' Front onNeedle [] = [onNeedle]
-        makeFabric' Back onNeedle [] = [reverse (backNeedle onNeedle)]
-        makeFabric' side onNeedle (r:pattern) = (front side onNeedle) : (rest r)
-            where
-                rest (Row (Sequence row)) = makeFabric' (otherSide side) (knitPattern (reverse (backNeedle onNeedle)) row) pattern
-                rest (Round (Sequence round)) = makeFabric' side (knitPattern onNeedle round) pattern
-                front Front on = on
-                front Back on = reverse (backNeedle on)
 
--}
+makeFabric :: Pattern -> Maybe Fabric
+makeFabric pat = Fabric <$> (((castOn pat) :) <$> (makeFabric' (castOn pat) (rows pat)))
+    where
+        makeNextRow oN seq = case doAction oN seq of
+                                Left err -> Nothing
+                                Right ([], nN) -> Just nN
+                                Right _ -> Nothing
+        makeFabric' onNeedle [] = Just []
+        makeFabric' onNeedle (Round seq:rest) = do
+                                                    oN <- makeNextRow onNeedle seq
+                                                    (oN :) <$> makeFabric' oN rest
+        makeFabric' onNeedle (Row Front seq:rest) = do
+                                                        oN <- makeNextRow onNeedle seq
+                                                        (oN :) <$> makeFabric' oN rest
+        makeFabric' onNeedle (Row Back seq:rest) = do
+                                                    oN <- makeNextRow onNeedle seq
+                                                    ((map inverse oN) :) <$> makeFabric' oN rest

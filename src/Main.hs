@@ -134,15 +134,15 @@ main = do
 
 loop = loop' Map.empty
 
-loop' :: (Map String [Row]) -> IO ()
+loop' :: (Map String Pattern) -> IO ()
 loop' patterns = do
     choice <- menu options
     case choice of
         (Just "Input") -> do
-            (name, rows) <- readPattern
-            putStrLn name
-            if (length rows) == 0 then loop' patterns
-            else loop' (insert name rows patterns)
+            pattern <- readPattern
+            putStrLn (name pattern)
+            if (length (rows pattern)) == 0 then loop' patterns
+            else loop' (insert (name pattern) pattern patterns)
         (Just "Supported Stitches") -> do
             mapM_ putStrLn stitchDescriptions
             loop' patterns
@@ -156,13 +156,14 @@ loop' patterns = do
         _ -> loop' patterns
 
 
+showPattern :: (Map String Pattern) -> IO ()
 showPattern patterns = do
     putStrLn "Choose a pattern to display"
     choice <- menu (Map.keys patterns)
     case choice of
         (Just c) -> case (Map.lookup c patterns) of
                         (Just p) -> do
-                            mapM_ (putStrLn . show) p
+                            (putStrLn . show) p
                             loop' patterns
                         Nothing -> do
                             putStrLn "That is not a pattern"
@@ -197,13 +198,13 @@ readPattern = do
     let startNeedle = Prelude.take co (repeat (On Knit)) in
         if round then do
             rows <- readRows Nothing startNeedle
-            return (name, rows)
+            return (Pattern name startNeedle rows)
         else do
             rs <- confirm "Does the pattern start on the RS?"
             rows <- if rs
                     then readRows (Just Front) startNeedle
                     else readRows (Just Back) startNeedle
-            return (name, rows)
+            return (Pattern name startNeedle rows)
 
 
 readRows maybeSide last = do
