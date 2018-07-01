@@ -156,6 +156,38 @@ data Pattern = Pattern [Row] deriving (Eq, Show)
 instance Show Sequence where
     show (Sequence pl) = concat (fmap show pl)
 
+
+checkNewRow :: [OnNeedle] -> Sequence -> Either String Sequence
+checkNewRow lastRow seq@(Sequence nextRow) = do
+                                                nextRow <- checkLength seq
+                                                nextRow <- checkFirst nextRow
+                                                Sequence <$> checkInto nextRow
+    where
+        checkLength row = if (length lastRow) == (uses row) then Right row
+                          else Left "New row has wrong number of stitches"
+        checkFirst (Sequence (Inc (YarnOver) : _)) = Left "Cannot do yarn over for first stitch in a row"
+        checkFirst (Sequence (Inc (Between _) : _)) = Left "Cannot knit between two stitches on first stitch"
+        checkFirst (Sequence row) = Right row
+        checkInto [] = Right []
+        checkInto (s@(Inc (IntoOneStitch sts)) : tl) = if checkAlternating sts
+            then (s:) <$> (checkInto tl)
+            else Left "When knitting into one stitch must alternate front and back or knit and purl"
+        checkInto (s : tl) = (s:) <$> (checkInto tl)
+
+checkAlternating :: [Stitch] -> Bool
+checkAlternating [] = False
+checkAlternating (_ : []) = True
+checkAlternating (Stitch b1 s1 : s@(Stitch b2 s2) : tl) = (b1 /= b2 || s1 /= s2) && (checkAlternating (s:tl))
+
+matchStitchToActions :: [OnNeedle] -> Sequence -> Maybe [([OnNeedle], Action)]
+matchStitchToActions oN (Sequence sts) = matchStitchToActions' oN sts
+    where
+        matchStitchToActions' [] [] = Just []
+        matchStitchToActions' _ [] = Nothing
+        matchStitchToActions' [] _ = Nothing
+        matchStitchToActions' oN (s:tl) = let (rest, needle) = doAction oN s in
+                                            ((needle, s) :) <$> (matchStitchToActions' rest tl)
+
 newtype Fabric = Fabric [[OnNeedle]] deriving Eq
 
 instance Show Fabric where

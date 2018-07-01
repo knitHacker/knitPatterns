@@ -30,12 +30,34 @@ menu options = do
             putStrLn ((show n) ++ ") " ++ s)
             menu' tl (n+1)
 
+getNumber :: String -> IO Int
+getNumber prompt = do
+    putStrLn prompt
+    ans <- getLine
+    case readMaybe ans :: Maybe Int of
+        (Just n) -> return n
+        Nothing -> do
+            putStrLn "Please enter a number"
+            getNumber prompt
+
 options = [
+    "Supported Stitches",
     "Input",
     "List",
-    "Write",
     "Show",
     "Quit"]
+
+
+stitchDescriptions = [
+    "k or k<NUM> - Knit 1 or NUM stitches",
+    "p or p<NUM> - Purl 1 or NUM stitches",
+    "yo - Yarn over needle to create new stitch",
+    "psso - Slip 1 stitch knitwise, knit 1, slip slipped stitch over",
+    "k<NUM>tog or p<NUM>tog - Knit or purl NUM stitches togehter",
+    "m1 - Knit into space between stitches",
+    "kfb - Knit through front and back",
+    "ssk - Slip, slip, knit into 2 slipped stitches",
+    "sl or sl<NUM> - Slip 1 stitch or slip NUM stitch"]
 
 
 getLeadingInt :: String -> (Int, String)
@@ -55,12 +77,28 @@ nextDigit str = if ((length str) > 0) && isDigit (head str)
                 then getLeadingInt str
                 else (1, str)
 
+getTog :: String -> Maybe String
+getTog ('t' : 'o' : 'g' : tl) = Just tl
+getTog _ = Nothing
+
+parseStitch :: Stitch -> String -> Either Char [Action]
+parseStitch stitch str = let (num, left) = nextDigit str
+                             maybeTog = getTog left in
+                                case maybeTog of
+                                    Just rest -> (((Dec (Tog num stitch)):) <$> (parsePattern rest))
+                                    Nothing -> let stitches = Prelude.take num (repeat (Wrap stitch)) in
+                                        ((stitches ++) <$> (parsePattern left))
+
 parsePattern :: String -> Either Char [Action]
 parsePattern [] = Right []
-parsePattern ('k' : tl) = let (num, left) = nextDigit tl
-                            in ((k num)++) <$> (parsePattern left)
-parsePattern ('p' : tl) = let (num, left) = nextDigit tl
-                            in (((p num) ++) <$> (parsePattern left))
+parsePattern ('s' : 'l' : tl) = let (num, left) = nextDigit tl in
+                                    ((Prelude.take num (repeat Slip)) ++) <$> (parsePattern tl)
+parsePattern ('s' : 's' : 'k' : tl) = ((Dec (SlipStitch 2 (Stitch Knit Front))):) <$> (parsePattern tl)
+parsePattern ('k' : 'f' : 'b' : tl) = ((Inc (IntoOneStitch [Stitch Knit Front, Stitch Knit Back])) :) <$> (parsePattern tl)
+parsePattern ('m' : '1' : tl) = ((Inc (Between (Stitch Knit Front))) :) <$> (parsePattern tl)
+parsePattern ('p' : 's' : 's' : 'o' : tl) = ((Dec (Psso knit)) :) <$> (parsePattern tl)
+parsePattern ('k' : tl) = parseStitch (Stitch Knit Front) tl
+parsePattern ('p' : tl) = parseStitch (Stitch Purl Front) tl
 parsePattern ('y' : 'o' : tl) = let (num, left) = nextDigit tl
                                     in (((Inc YarnOver) :) <$> (parsePattern left))
 parsePattern (' ' : tl) = parsePattern tl
@@ -82,6 +120,9 @@ loop' patterns = do
             putStrLn name
             if (length rows) == 0 then loop' patterns
             else loop' (insert name rows patterns)
+        "Supported Stitches" -> do
+            mapM_ putStrLn stitchDescriptions
+            loop' patterns
         "List" -> do
             putStrLn "Loaded Patterns:"
             mapM_ putStrLn (Map.keys patterns)
@@ -124,23 +165,21 @@ readPattern = do
     putStr "Name pattern > "
     hFlush stdout
     name <- getLine
+    co <- getNumber "Cast on how many stitchs?"
     round <- confirm "Is this pattern for a round?"
-    if round then do
-        rows <- readRows Nothing Nothing
-        return (name, rows)
-    else do
-        rs <- confirm "Does the pattern start on the RS?"
-        rows <- if rs
-                then readRows (Just Front) Nothing
-                else readRows (Just Back) Nothing
-        return (name, rows)
-
-stitchesMatch :: Sequence -> Maybe Sequence -> Bool
-stitchesMatch _ Nothing = True
-stitchesMatch seq (Just oldSeq) = (uses seq) == (makes oldSeq)
+    let startNeedle = Prelude.take co (repeat (On Knit)) in
+        if round then do
+            rows <- readRows Nothing startNeedle
+            return (name, rows)
+        else do
+            rs <- confirm "Does the pattern start on the RS?"
+            rows <- if rs
+                    then readRows (Just Front) startNeedle
+                    else readRows (Just Back) startNeedle
+            return (name, rows)
 
 
-readRows maybeSide maybeLast = do
+readRows maybeSide last = do
     putStr "Enter pattern > "
     hFlush stdout
     line <- getLine
@@ -148,16 +187,19 @@ readRows maybeSide maybeLast = do
     else let pattern = parsePattern line in case pattern of
         Left c -> do
             putStrLn (c : " is not a parseable character")
-            return []
+            readRows maybeSide last
         Right pat -> do
-            let seq = Sequence pat in
-                if not (stitchesMatch seq maybeLast) then do
-                    putStrLn "New row stitches don't match last row"
-                    readRows maybeSide maybeLast
-                else case maybeSide of
-                        Just side -> do
-                            nextRows <- readRows (Just (otherSide side)) (Just seq)
-                            return ((Row side seq) : nextRows)
-                        Nothing -> do
-                            nextRows <- readRows Nothing (Just seq)
-                            return ((Round seq) : nextRows)
+            let seq = Sequence pat
+                (rest, onNeedle) = doAction last seq in
+                case checkNewRow last seq of
+                    Left str -> do
+                        putStrLn str
+                        readRows maybeSide last
+                    Right _ -> do
+                        case maybeSide of
+                            Just side -> do
+                                nextRows <- readRows (Just (otherSide side)) onNeedle
+                                return ((Row side seq) : nextRows)
+                            Nothing -> do
+                                nextRows <- readRows Nothing onNeedle
+                                return ((Round seq) : nextRows)
