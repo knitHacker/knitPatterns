@@ -2,42 +2,47 @@ module KnitStitches where
 
 import Data.List
 
+class Instructable a where
+    instr :: a -> String
+    concatInstr :: [a] -> String
+    concatInstr as = concat (fmap (\x->x++", ") (fmap instr as))
+
 -- The Front side refers to the side closest to the knitter
 -- While the Back side refers to the side away from the knitter
 -- When used in Fabric or Row Front refers to the 'Right side'
 -- or the side that will be facing out when worn / used
 -- The Back in that case is the side facing inward
-data Side = Front | Back deriving Eq
+data Side = Front | Back deriving (Eq, Show, Read)
 
-instance Show Side where
-    show Front = "front"
-    show Back = "back"
+instance Instructable Side where
+    instr Front = "front"
+    instr Back = "back"
 
 
 -- Base knit stitches are Knit and Purl
 -- This represents both the action of knit and purl
 -- but also the state of a loop on a needle where
 -- knit is the flat v while purl is the bump or loop
-data Base = Knit | Purl deriving Eq
+data Base = Knit | Purl deriving (Eq, Show, Read)
 
 
-instance Show Base where
-    show Knit = "k"
-    show Purl = "p"
+instance Instructable Base where
+    instr Knit = "k"
+    instr Purl = "p"
 
 -- A cable represents moving stitches physically
 -- usually with a cable needle or cn
 -- After a cable is worked the two sequences will be
 -- reversed on the needle. The first sequence is the
--- stitches being carried so they show up first and
+-- stitches being carried so they instr up first and
 -- will end after the second sequence.
 -- The side is the side the carried stitches should
 -- be on while knitting the second set
-data Cable = Hold Side Sequence Sequence deriving Eq
+data Cable = Hold Side Sequence Sequence deriving (Eq, Show, Read)
 
-instance Show Cable where
-    show (Hold side c1 c2) =
-        "Place "++(show (uses c1))++" stitches on cn and hold in "++(show side)++", "++(show c2)++", "++(show c1)++" from the cn, "
+instance Instructable Cable where
+    instr (Hold side c1 c2) =
+        "Place "++(show (uses c1))++" stitches on cn and hold in "++(instr side)++", "++(instr c2)++", "++(instr c1)++" from the cn, "
 
 -- Stitches that reduce the number of stitches on the needle after they are completed
 -- This is by no means a complete list but should cover the majority of cases
@@ -53,13 +58,13 @@ instance Show Cable where
 data Decrease = Tog Int Stitch
               | PassStitchOver Stitch Action
               | Psso Action
-              | SlipStitch Int Stitch deriving Eq
+              | SlipStitch Int Stitch deriving (Eq, Show, Read)
 
-instance Show Decrease where
-    show (Tog n s) = (show s)++(show n)++"tog"
-    show (PassStitchOver s a) = (show s) ++ " " ++ (show a) ++ "pass prev st over last st"
-    show (Psso a) = "sl st "++(show a)++", psso"
-    show (SlipStitch n s) = "slip "++(show n)++", "++(show s)++" slipped sts"
+instance Instructable Decrease where
+    instr (Tog n s) = (instr s)++(show n)++"tog"
+    instr (PassStitchOver s a) = (instr s) ++ " " ++ (instr a) ++ "pass prev st over last st"
+    instr (Psso a) = "sl st "++(instr a)++", psso"
+    instr (SlipStitch n s) = "slip "++(show n)++", "++(instr s)++" slipped sts"
 
 -- Stitches that increase the number of stitches in a pattern
 -- Definitely not inclusive, still figuring out how to represent 'picking up' stitchs on stitches not on the needle
@@ -72,23 +77,23 @@ instance Show Decrease where
 -- IntoOneStitch is a list of stitches to be done into the next loop on the left needle
 data Increase = YarnOver
               | Between Side Stitch
-              | IntoOneStitch [Stitch] deriving Eq
+              | IntoOneStitch [Stitch] deriving (Eq, Show, Read)
 
-instance Show Increase where
-    show YarnOver = "yo"
-    show (Between side s) = "insert LH needle into space into stitches from the "++(show side)++" and "++(show s)
-    show (IntoOneStitch sl) = (show (fmap Wrap sl)) ++ " into the next st"
+instance Instructable Increase where
+    instr YarnOver = "yo"
+    instr (Between side s) = "insert LH needle into space into stitches from the "++(instr side)++" and "++(instr s)
+    instr (IntoOneStitch sl) = (concatInstr (fmap Wrap sl)) ++ " into the next st"
 
 
 -- Adds a 'side' component to the base stitches
 -- If the side is Back this would be seen as ktbl or ptbl
 -- which produces a twisted stitch
-data Stitch = Stitch Base Side deriving Eq
+data Stitch = Stitch Base Side deriving (Eq, Show, Read)
 
 
-instance Show Stitch where
-    show (Stitch b Back) = (show b)++"tbl"
-    show (Stitch b _) = (show b)
+instance Instructable Stitch where
+    instr (Stitch b Back) = (instr b)++"tbl"
+    instr (Stitch b _) = (instr b)
 
 -- Action are 'stitches' that are applied to loops on the needle
 -- Due to the overloading of the word stitch these loops are also
@@ -104,14 +109,14 @@ data Action = Wrap Stitch
             | Dec Decrease
             | Inc Increase
             | Cross Cable
-            | Slip Base deriving Eq
+            | Slip Base deriving (Eq, Show, Read)
 
-instance Show Action where
-    show (Wrap s) = show s
-    show (Dec d) = show d
-    show (Inc i) = show i
-    show (Cross c) = show c
-    show (Slip b) = "sl " ++ case b of
+instance Instructable Action where
+    instr (Wrap s) = instr s
+    instr (Dec d) = instr d
+    instr (Inc i) = instr i
+    instr (Cross c) = instr c
+    instr (Slip b) = "sl " ++ case b of
                                 Knit -> "knitwise"
                                 Purl -> "purlwise"
 
@@ -126,12 +131,12 @@ instance Show Action where
 -- The preferred use is to always have the 'Front' being represented
 -- This is the assumption when displaying OnNeedle stitch
 data OnNeedle = On Base
-              | Yo deriving Eq
+              | Yo deriving (Eq, Show, Read)
 
-instance Show OnNeedle where
-    show (On Knit) = "^"
-    show (On Purl) = "o"
-    show Yo = "/"
+instance Instructable OnNeedle where
+    instr (On Knit) = "^"
+    instr (On Purl) = "o"
+    instr Yo = "/"
 
 -- A 'Row' is knit back and forth
 -- A 'Round' is knit continuously in a round
@@ -139,33 +144,33 @@ instance Show OnNeedle where
 -- the sequence contains the front side stitches
 -- TODO: Should these be the same datatype?
 data Row = Row Side Sequence
-         | Round Sequence deriving Eq
+         | Round Sequence deriving (Eq, Show, Read)
 
-instance Show Row where
+instance Instructable Row where
     -- TODO: use side information to always display 'front'
-    show (Row _ p) = show p
-    show (Round p) = show p
+    instr (Row _ p) = instr p
+    instr (Round p) = instr p
 
 
 -- A sequence is just that, a sequence of actions (stitches) to be
 -- taken on the loops (stitches) on the needle
-newtype Sequence = Sequence [Action] deriving Eq
+newtype Sequence = Sequence [Action] deriving (Eq, Show, Read)
 
 -- Pattern is a list of rows which represent a single pass
 -- across all loops (stitches) on the needles currently
 data Pattern = Pattern { name :: String
                        , castOn :: [OnNeedle]
                        , rows :: [Row]
-                       } deriving Eq
+                       } deriving (Eq, Show, Read)
 
-instance Show Pattern where
-    show pattern = (name pattern) ++ "\n" ++ (case (makeFabric pattern) of
-                                                Just f -> show f
+instance Instructable Pattern where
+    instr pattern = (name pattern) ++ "\n" ++ (case (makeFabric pattern) of
+                                                Just f -> instr f
                                                 Nothing -> "Pattern cannot be shown")
 
 
-instance Show Sequence where
-    show (Sequence pl) = concat (fmap show pl)
+instance Instructable Sequence where
+    instr (Sequence pl) = concatInstr pl
 
 
 checkNewRow :: [OnNeedle] -> Sequence -> Either String [OnNeedle]
@@ -204,13 +209,13 @@ matchStitchToActions oN (Sequence sts) = matchStitchToActions' oN sts
                                             Right (rest, needle) -> ((needle, s) :) <$> (matchStitchToActions' rest tl)
                                             Left err -> Left err
 
-newtype Fabric = Fabric [[OnNeedle]] deriving Eq
+newtype Fabric = Fabric [[OnNeedle]] deriving (Eq, Show, Read)
 
-instance Show Fabric where
-    show (Fabric []) = ""
-    show (Fabric (h:tl)) = oneRow ++ (show (Fabric tl))
+instance Instructable Fabric where
+    instr (Fabric []) = ""
+    instr (Fabric (h:tl)) = oneRow ++ (instr (Fabric tl))
         where
-            oneRow = (concat (fmap show h)) ++ "\n"
+            oneRow = (concat (fmap instr h)) ++ "\n"
 
 reverseRow :: Row -> Row
 reverseRow (Row s p) = undefined
@@ -258,7 +263,7 @@ stitch :: Stitch -> OnNeedle
 stitch (Stitch b _) = On b
 
 
-class Show a => KnitAction a where
+class Instructable a => KnitAction a where
     uses :: a -> Int
     makes :: a -> Int
     doAction :: [OnNeedle] -> a -> Either String ([OnNeedle], [OnNeedle])
@@ -297,7 +302,7 @@ instance KnitAction Action where
     doAction prev (Inc inc) = doAction prev inc
     doAction prev (Cross cab) = doAction prev cab
     doAction (n:tl) (Slip _) = Right (tl, [n])
-    doAction p a = Left ("Failed to do "++(show a)++" on "++(show p)++".")
+    doAction p a = Left ("Failed to do "++(instr a)++" on "++(concatInstr p)++".")
 
     flipAction (Wrap b) = Wrap undefined
     flipAction (Dec dec) = Dec $ flipAction dec

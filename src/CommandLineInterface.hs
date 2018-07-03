@@ -2,12 +2,17 @@
 module CommandLineInterface where
 
 import System.IO
+import System.Environment
+import System.Directory
 import Data.Map as Map
 import Text.Read
 import Data.Char
 
+import GHC.Compact.Serialized
+
 import KnitStitches
 import StandardStitches
+
 
 menu :: [String] -> IO (Maybe String)
 menu [] = do
@@ -47,7 +52,9 @@ options = [
     "Stitches",
     "Input",
     "List",
-    "Show"]
+    "Show",
+    "Load",
+    "Save"]
 
 
 stitchDescriptions = [
@@ -152,9 +159,73 @@ loop' patterns = do
             loop' patterns
         (Just "Show") -> do
             showPattern patterns
+        (Just "Save") -> do
+            savePattern patterns
+        (Just "Load") -> do
+            newPatterns <- loadPatterns patterns
+            loop' newPatterns
         (Just "Quit") -> return ()
         _ -> loop' patterns
 
+
+upDirectory :: FilePath -> FilePath
+upDirectory path = reverse (upD (reverse path))
+    where
+        upD [] = []
+        upD (h:tl) = if h == '/' then tl
+                                 else upD tl
+
+endswith :: String -> String -> Bool
+endswith str end = ew (reverse str) (reverse end)
+    where
+        ew _ [] = True
+        ew [] _ = False
+        ew (x:xs) (e:es) = (x == e) && (ew xs es)
+
+
+getDataPath :: IO FilePath
+getDataPath = do
+    path <- getExecutablePath
+    return $ ((upDirectory (upDirectory path)) ++ "/data/")
+
+
+loadPatterns :: (Map String Pattern) -> IO (Map String Pattern)
+loadPatterns currPatterns = do
+    path <- getExecutablePath
+    dataPath <- getDataPath
+    files <- listDirectory dataPath
+    let dataFiles = Prelude.filter ((flip endswith) ".hdata") files in
+        let fullDataFiles = (dataPath ++) <$> dataFiles in
+            addPatterns fullDataFiles currPatterns
+    where
+        addPatterns [] patterns = return patterns
+        addPatterns (h:tl) patterns = do
+            putStrLn ("Loading " ++ h)
+            restPatterns <- addPatterns tl patterns
+            newPatterns <- addPattern h restPatterns
+            return newPatterns
+        addPattern fileName patterns = do
+            pat <- readFile fileName
+            let newPattern = read pat :: Pattern in
+                let outPatterns = insert (name newPattern) newPattern patterns in
+                    return outPatterns
+
+savePattern :: (Map String Pattern) -> IO ()
+savePattern patterns = do
+    putStrLn "Choose a pattern to save"
+    dataPath <- getDataPath
+    choice <- menu (Map.keys patterns)
+    case choice of
+        (Just c) -> case (Map.lookup c patterns) of
+                        (Just p) -> do
+                            writeFile (dataPath ++ c ++ ".hdata") (show p)
+                            loop' patterns
+                        Nothing -> do
+                            putStrLn "That is not a pattern"
+                            savePattern patterns
+        Nothing -> do
+            putStrLn "No patterns to display"
+            loop' patterns
 
 showPattern :: (Map String Pattern) -> IO ()
 showPattern patterns = do
@@ -163,7 +234,7 @@ showPattern patterns = do
     case choice of
         (Just c) -> case (Map.lookup c patterns) of
                         (Just p) -> do
-                            (putStrLn . show) p
+                            (putStrLn . instr) p
                             loop' patterns
                         Nothing -> do
                             putStrLn "That is not a pattern"
