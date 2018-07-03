@@ -162,7 +162,7 @@ loop' patterns = do
         (Just "Save") -> do
             savePattern patterns
         (Just "Load") -> do
-            newPatterns <- loadPatterns patterns
+            newPatterns <- loadPattern patterns
             loop' newPatterns
         (Just "Quit") -> return ()
         _ -> loop' patterns
@@ -189,22 +189,21 @@ getDataPath = do
     return $ ((upDirectory (upDirectory path)) ++ "/data/")
 
 
-loadPatterns :: (Map String Pattern) -> IO (Map String Pattern)
-loadPatterns currPatterns = do
+loadPattern :: (Map String Pattern) -> IO (Map String Pattern)
+loadPattern currPatterns = do
     path <- getExecutablePath
     dataPath <- getDataPath
     files <- listDirectory dataPath
-    let dataFiles = Prelude.filter ((flip endswith) ".hdata") files in
-        let fullDataFiles = (dataPath ++) <$> dataFiles in
-            addPatterns fullDataFiles currPatterns
+    let dataFiles = Prelude.filter ((flip endswith) ".hdata") files in do
+        choice <- menu files
+        case choice of
+            (Just c) -> addPattern (dataPath ++ c) currPatterns
+            Nothing -> do
+                putStrLn ("No patterns to display in " ++ dataPath)
+                return currPatterns
     where
-        addPatterns [] patterns = return patterns
-        addPatterns (h:tl) patterns = do
-            putStrLn ("Loading " ++ h)
-            restPatterns <- addPatterns tl patterns
-            newPatterns <- addPattern h restPatterns
-            return newPatterns
         addPattern fileName patterns = do
+            putStrLn ("Loading " ++ fileName)
             pat <- readFile fileName
             let newPattern = read pat :: Pattern in
                 let outPatterns = insert (name newPattern) newPattern patterns in
