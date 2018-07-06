@@ -5,7 +5,8 @@ import Data.List
 class Instructable a where
     instr :: a -> String
     concatInstr :: [a] -> String
-    concatInstr as = concat (fmap (\x->x++", ") (fmap instr as))
+    concatInstr (a:[]) = instr a
+    concatInstr (a:as) =  (instr a) ++ ", " ++ (concatInstr as) -- concat (fmap (\x->x++", ") (fmap instr as))
 
 -- The Front side refers to the side closest to the knitter
 -- While the Back side refers to the side away from the knitter
@@ -30,26 +31,14 @@ instance Instructable Base where
     instr Knit = "k"
     instr Purl = "p"
 
--- A cable represents moving stitches physically
--- usually with a cable needle or cn
--- After a cable is worked the two sequences will be
--- reversed on the needle. The first sequence is the
--- stitches being carried so they instr up first and
--- will end after the second sequence.
--- The side is the side the carried stitches should
--- be on while knitting the second set
-data Cable = Hold Side Sequence Sequence deriving (Eq, Show, Read)
-
-instance Instructable Cable where
-    instr (Hold side c1 c2) =
-        "Place "++(show (uses c1))++" stitches on cn and hold in "++(instr side)++", "++(instr c2)++", "++(instr c1)++" from the cn, "
 
 -- Stitches that reduce the number of stitches on the needle after they are completed
 -- This is by no means a complete list but should cover the majority of cases
 -- Tog does a Stitch into n number of stitches at once to turn n stitches to 1
 -- Pass stitch over has the stitch that will be passed over the resulting stitch
 -- produced by the action.
--- PSSO is pass slip stitch over. Does not contain slip knit or purlwise.
+-- PSSO is pass slip stitch over. The number of stitches to slip, and base
+-- says how to slipe them (knitwise or purlwise)
 -- Implies one stitch will be slipped and an action will be performed that
 -- the resulting stitch will have the slip stitch passed over it
 -- SlipStitch is the opposite of Tog, if given 2 and knit this would
@@ -57,13 +46,13 @@ instance Instructable Cable where
 -- needle and with the left needle apply the given stitch.
 data Decrease = Tog Int Stitch
               | PassStitchOver Stitch Action
-              | Psso Action
+              | Psso Int Base Action
               | SlipStitch Int Stitch deriving (Eq, Show, Read)
 
 instance Instructable Decrease where
     instr (Tog n s) = (instr s)++(show n)++"tog"
     instr (PassStitchOver s a) = (instr s) ++ " " ++ (instr a) ++ "pass prev st over last st"
-    instr (Psso a) = "sl st "++(instr a)++", psso"
+    instr (Psso n b a) = "sl "++(show n)++" st(s) "++ (instr b)++"-wise, "++(instr a)++", psso"
     instr (SlipStitch n s) = "slip "++(show n)++", "++(instr s)++" slipped sts"
 
 -- Stitches that increase the number of stitches in a pattern
@@ -88,12 +77,18 @@ instance Instructable Increase where
 -- Adds a 'side' component to the base stitches
 -- If the side is Back this would be seen as ktbl or ptbl
 -- which produces a twisted stitch
-data Stitch = Stitch Base Side deriving (Eq, Show, Read)
+-- Slip is moving the stitch from the left needle to the right needle
+-- without any other actions taken on it
+data Stitch = Stitch Base Side
+            | Slip Base deriving (Eq, Show, Read)
 
 
 instance Instructable Stitch where
     instr (Stitch b Back) = (instr b)++"tbl"
     instr (Stitch b _) = (instr b)
+    instr (Slip Knit) = "sl knit-wise"
+    instr (Slip Purl) = "sl purl-wise"
+
 
 -- Action are 'stitches' that are applied to loops on the needle
 -- Due to the overloading of the word stitch these loops are also
@@ -102,23 +97,28 @@ instance Instructable Stitch where
 -- The name refers to wrapping the yarn around the needle during the stitch
 -- Dec is a decrease stitch defined above
 -- Inc is a increase stitch defined above
--- Cross is a cable stitch defined above
--- Slip is moving the stitch from the left needle to the right needle
--- without any other actions taken on it
-data Action = Wrap Stitch
+-- A cable represents moving stitches physically
+-- usually with a cable needle or cn
+-- After a cable is worked the two sequences will be
+-- reversed on the needle. The first sequence is the
+-- stitches being carried so they instr up first and
+-- will end after the second sequence.
+-- The side is the side the carried stitches should
+-- be on while knitting the second set
+data Action = St Stitch
             | Dec Decrease
             | Inc Increase
-            | Cross Cable
-            | Slip Base deriving (Eq, Show, Read)
+            | Cable Side [Action] [Action]
+            | MoveYarn Side
+            | MoveL deriving (Eq, Show, Read)
 
 instance Instructable Action where
-    instr (Wrap s) = instr s
+    instr (St s) = instr s
     instr (Dec d) = instr d
     instr (Inc i) = instr i
-    instr (Cross c) = instr c
-    instr (Slip b) = "sl " ++ case b of
-                                Knit -> "knitwise"
-                                Purl -> "purlwise"
+    instr (Cable side c1 c2) =
+        "Place "++(show (uses c1))++" stitches on cn and hold in "++(instr side)
+            ++", "++(concatInstr c2)++", "++(concatInstr c1)++" from the cn, "
 
 
 -- This data type represents the loops on the needle also
@@ -304,7 +304,7 @@ instance KnitAction Action where
     doAction (n:tl) (Slip _) = Right (tl, [n])
     doAction p a = Left ("Failed to do "++(instr a)++" on "++(concatInstr p)++".")
 
-    flipAction (Wrap b) = Wrap undefined
+    flipAction (Wrap (Stitch b s)) = Wrap undefined
     flipAction (Dec dec) = Dec $ flipAction dec
     flipAction (Inc inc) = Inc $ flipAction inc
     flipAction (Cross cab) = Cross $ flipAction cab
@@ -313,22 +313,22 @@ instance KnitAction Action where
 instance KnitAction Decrease where
     uses (Tog n _) = n
     uses (PassStitchOver _ a) = 1 + (uses a)
-    uses (Psso a) = 1 + (uses a)
+    uses (Psso n b a) = n + (uses a)
     uses (SlipStitch n _) = n
 
     makes (Tog _ _) = 1
     makes (PassStitchOver _ a)= makes a
-    makes (Psso a) = makes a
+    makes (Psso _ _ a) = makes a
     makes (SlipStitch _ _) = 1
 
     doAction prev (Tog n s) = Right (drop n prev, [stitch s])
     doAction (_:tl) (PassStitchOver _ a) = doAction tl a
-    doAction (_:tl) (Psso a) = doAction tl a
+    doAction (_:tl) (Psso _ _ a) = doAction tl a
     doAction prev (SlipStitch n s) = Right (drop n prev, [stitch s])
 
     flipAction (Tog n s) = SlipStitch n (undefined)
     flipAction (PassStitchOver _ a) = undefined
-    flipAction (Psso a) = undefined
+    flipAction (Psso _ _ a) = undefined -- (flipAction a)
     flipAction (SlipStitch n s) = Tog n (undefined)
 
 
