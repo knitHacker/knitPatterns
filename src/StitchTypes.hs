@@ -6,12 +6,16 @@ class Reversable a where
     alternating _ 0 = []
     alternating a n = a : (alternating (other a) (n-1))
 
+
+class Stitchable a where
+    stitch :: Base -> a
+
 -- Type that says gives instruction
 class Instructable a where
     instr :: a -> String
     commaInstr :: [a] -> String
     commaInstr (a:[]) = instr a
-    commaInstr (a:as) = ((instr a) ++", ") ++ concatInstr as
+    commaInstr (a:as) = ((instr a) ++", ") ++ commaInstr as
     concatInstr :: [a] -> String
     concatInstr as = concat $ instr <$> as
     expanded :: a -> String
@@ -30,6 +34,9 @@ data Base = Knit | Purl deriving (Eq, Show, Read)
 instance Reversable Base where
     other Knit = Purl
     other Purl = Knit
+
+instance Stitchable Base where
+    stitch b = b
 
 -- Base is an instance of instructable?
 instance Instructable Base where
@@ -66,6 +73,10 @@ data ToOne = Dec ManyToOne
            | ToOne OneToOne deriving (Eq, Show, Read)
 
 
+instance Stitchable ToOne where
+    stitch b = ToOne (stitch b)
+
+
 instance Instructable ToOne where
     instr (Dec d) = instr d
     instr (ToOne o) = instr o
@@ -81,6 +92,9 @@ instance Stitches ToOne where
 data FromOne = Incr OneToMany
              | FromOne OneToOne deriving (Eq, Show, Read)
 
+instance Stitchable FromOne where
+    stitch b = FromOne (stitch b)
+
 instance Instructable FromOne where
     instr (Incr i) = instr i
     instr (FromOne f) = instr f
@@ -95,6 +109,9 @@ instance Stitches FromOne where
 -- 1 -> 1
 data OneToOne = Stitch Base Side
               | Slip Base deriving (Eq, Show, Read)
+
+instance Stitchable OneToOne where
+    stitch b = Stitch b Front
 
 instance Instructable OneToOne where
     instr (Stitch b Front) = instr b
@@ -180,13 +197,27 @@ instance Stitches ZeroToMany where
     conforms s = uses s == 0 && makes s > 0
 
 -- * -> * or + -> +?
-data ManyToMany = Seq [Stitch]
-                | Cable [] [] deriving (Eq, Show, Read)
+data ManyToMany = Hold Side [Stitch] [Stitch] deriving (Eq, Show, Read)
+
+instance Instructable ManyToMany where
+    instr (Hold s sts1 sts2) = "Place next " ++ (show (sum $ uses <$> sts1)) ++ " stitches on cn, hold in " ++
+                               (expanded s) ++ ", " ++ (commaInstr sts2) ++ ", " ++ (commaInstr sts1) ++ " from cable needle"
+
+instance Stitches ManyToMany where
+    uses (Hold _ sts1 sts2) = (sum $ uses <$> sts1) + (sum $ uses <$> sts2)
+    makes (Hold _ sts1 sts2) = (sum $ makes <$> sts1) + (sum $ makes <$> sts2)
+    conforms (Hold s sts1 sts2) = (sum $ uses <$> sts1) > 0 && (sum $ uses <$> sts2) > 0 &&
+                                  (and $ conforms <$> sts1) && (and $ conforms <$> sts2)
+
 
 data Stitch = Base OneToOne
             | Together ManyToOne
             | Into OneToMany
-            | Makes ZeroToMany deriving (Eq, Show, Read)
+            | Makes ZeroToMany
+            | Cable ManyToMany deriving (Eq, Show, Read)
+
+instance Stitchable Stitch where
+    stitch b = Base (stitch b)
 
 
 instance Instructable Stitch where
@@ -194,8 +225,24 @@ instance Instructable Stitch where
     instr (Together t) = instr t
     instr (Into i) = instr i
     instr (Makes m) = instr m
+    instr (Cable c) = instr c
 
 instance Stitches Stitch where
-    uses _ = undefined
-    makes _ = undefined
-    conforms _ = True
+    uses (Base b) = uses b
+    uses (Together t) = uses t
+    uses (Into i) = uses i
+    uses (Makes m) = uses m
+    uses (Cable c) = uses c
+
+    makes (Base b) = makes b
+    makes (Together t) = makes t
+    makes (Into i) = makes i
+    makes (Makes m) = makes m
+    makes (Cable c) = makes c
+
+    conforms (Base b) = conforms b
+    conforms (Together t) = conforms t
+    conforms (Into i) = conforms i
+    conforms (Makes m) = conforms m
+    conforms (Cable c) = conforms c
+
