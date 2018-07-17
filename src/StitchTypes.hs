@@ -246,3 +246,10 @@ instance Stitches Stitch where
     conforms (Makes m) = conforms m
     conforms (Cable c) = conforms c
 
+
+data Row = Row Side [Stitch]
+         | Round [Stitch]
+         | Turn [Stitch] deriving (Show, Eq, Read)
+
+
+newtype Panel = Panel [Row] deriving (Show, Eq, Read)
