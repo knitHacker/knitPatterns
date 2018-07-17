@@ -144,26 +144,49 @@ instance Stitches ManyToOne where
     makes _ = 1
     conforms s = uses s > 1 && makes s == 1
 
+
+data IntoStitch = IntoBase Base Side
+                | IntoYo deriving (Eq, Show, Read)
+
+instance Instructable IntoStitch where
+    instr (IntoBase b s) = instr (Stitch b s)
+    instr IntoYo = "yo"
+
 -- 1 -> +
-data OneToMany = FrontBack Base Side Int
-               | KnitPurl Base Side Int deriving (Eq, Show, Read)
+-- alternate f / b or k / p or k / yo
+-- yo can't be first
+data IntoNext = IntoEnd Base Side
+              | IntoNext IntoStitch IntoNext deriving (Eq, Show, Read)
+
+data OneToMany = IntoStart Base Side IntoNext deriving (Eq, Show, Read)
 
 instance Instructable OneToMany where
-    expanded (FrontBack b start n) = (expanded b) ++ " into " ++ (expanded start) ++
-                                     " and " ++ (expanded $ other start) ++
-                                     " of next stitch " ++ (show n) ++ " times"
-    expanded (KnitPurl s Front n) = (expanded s) ++ " and " ++ (expanded $ other s) ++
-                                    " into next stitch " ++ (show n) ++ " times"
-    instr (FrontBack b s n) = (instr b) ++ (concatInstr $ alternating s n)
-    instr (KnitPurl s Front n) = (concatInstr $ alternating s n) ++ " into next stitch"
-    instr (KnitPurl s Back n) = (concatInstr $ alternating s n) ++ " tbl of next stitch"
+    instr (IntoStart Knit Front (IntoEnd Knit Back)) = "kfb"
+    instr (IntoStart Knit Back (IntoEnd Knit Front)) = "kbf"
+    instr (IntoStart Purl Front (IntoEnd Purl Back)) = "pfb"
+    instr (IntoStart Purl Back (IntoEnd Purl Front)) = "pbf"
+    instr (IntoStart b s n) = "(" ++ (instr $ Stitch b s) ++ ", " ++ (instr' n) ++ ") into next stitch"
+        where
+            instr' :: IntoNext -> String
+            instr' (IntoNext i n) = (instr i) ++ ", " ++ (instr' n)
+            instr' (IntoEnd b s) = instr $ Stitch b s
 
 
 instance Stitches OneToMany where
     uses _ = 1
-    makes (FrontBack _ _ n) = n
-    makes (KnitPurl _ _ n) = n
-    conforms s = uses s == 1 && makes s > 1
+    makes (IntoStart _ _ n) = 1 + (makes' n)
+        where
+            makes' :: IntoNext -> Int
+            makes' (IntoEnd _ _) = 1
+            makes' (IntoNext _ n) = 1 + (makes' n)
+    conforms (IntoStart b1 s1 (IntoEnd b2 s2)) = b1 /= b2 || s1 /= s2
+    conforms (IntoStart b s n) = conforms' (IntoBase b s) n
+        where
+            conforms' :: IntoStitch -> IntoNext -> Bool
+            conforms' i@(IntoBase b1 s1) (IntoEnd b2 s2) = b1 /= b2 || s1 /= s2
+            conforms' _ (IntoEnd _ _) = True
+            conforms' IntoYo (IntoNext IntoYo n) = conforms' IntoYo n
+            conforms' i1 (IntoNext i2 n) = i1 /= i2 && conforms' i2 n
 
 -- 0 -> +
 data ZeroToMany = Yo
