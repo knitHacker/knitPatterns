@@ -1,5 +1,7 @@
 module StitchTypes where
 
+import Data.Monoid
+
 class Reversable a where
     other :: a -> a
     alternating :: a -> Int -> [a]
@@ -60,14 +62,7 @@ instance Instructable Side where
     expanded Front = "front"
     expanded Back = "back"
 
--- Break up types to ... maybe these should be functions
--- 1 -> 1
--- + -> 1
--- 1 -> +
--- 0 -> +
--- * -> *
--- + -> +
-
+-- -> 1
 -- combine all that make 1
 data ToOne = Dec ManyToOne
            | ToOne OneToOne deriving (Eq, Show, Read)
@@ -105,6 +100,22 @@ instance Stitches FromOne where
     makes (Incr i) = makes i
     makes (FromOne f) = makes f
     conforms s = uses s == 1
+
+-- 0 -> 0
+data ZeroToZero = MoveLH [Stitch]
+                -- Not a yarn over
+                | MoveYarn deriving (Eq, Show, Read)
+
+instance Instructable ZeroToZero where
+    instr (MoveLH sts) = (commaInstr sts) ++ ", slip last " ++ (show $ getSum (foldMap (Sum . uses) sts)) ++
+                           " st(s) back to the LH needle"
+    instr MoveYarn = "move yarn to other side of needle"
+
+
+instance Stitches ZeroToZero where
+    uses _ = 0
+    makes _ = 0
+    conforms _ = True
 
 -- 1 -> 1
 data OneToOne = Stitch Base Side
@@ -237,7 +248,8 @@ data Stitch = Base OneToOne
             | Together ManyToOne
             | Into OneToMany
             | Makes ZeroToMany
-            | Cable ManyToMany deriving (Eq, Show, Read)
+            | Cable ManyToMany
+            | Move ZeroToZero deriving (Eq, Show, Read)
 
 instance Stitchable Stitch where
     stitch b = Base (stitch b)
@@ -249,6 +261,7 @@ instance Instructable Stitch where
     instr (Into i) = instr i
     instr (Makes m) = instr m
     instr (Cable c) = instr c
+    instr (Move m) = instr m
 
 instance Stitches Stitch where
     uses (Base b) = uses b
@@ -256,23 +269,36 @@ instance Stitches Stitch where
     uses (Into i) = uses i
     uses (Makes m) = uses m
     uses (Cable c) = uses c
+    uses (Move m) = uses m
 
     makes (Base b) = makes b
     makes (Together t) = makes t
     makes (Into i) = makes i
     makes (Makes m) = makes m
     makes (Cable c) = makes c
+    makes (Move m) = makes m
 
     conforms (Base b) = conforms b
     conforms (Together t) = conforms t
     conforms (Into i) = conforms i
     conforms (Makes m) = conforms m
     conforms (Cable c) = conforms c
+    conforms (Move m) = conforms m
 
 
 data Row = Row Side [Stitch]
          | Round [Stitch]
          | Turn [Stitch] deriving (Show, Eq, Read)
+
+instance Instructable Row where
+    instr (Row side sts) = let facing = case side of
+                                            Front -> "RS"
+                                            Back -> "WS"
+                                in  "With " ++ facing ++ " side facing " ++
+                                    (commaInstr sts)
+
+    instr (Round sts) = "Continue to next round and " ++ (commaInstr sts)
+    instr (Turn sts) = (commaInstr sts) ++ " and turn"
 
 
 newtype Panel = Panel [Row] deriving (Show, Eq, Read)
