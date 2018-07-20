@@ -26,7 +26,14 @@ class Instructable a where
 class (Eq a, Show a, Read a, Instructable a) => Stitches a where
     uses :: a -> Int
     makes :: a -> Int
-    doStitches :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
+--    doStitches :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
+-- doStitches :: [[OnNeedle]] -> a -> ([[OnNeedle]], [[OnNeedle]]) ?
+
+-- TODO?
+-- parse :: String -> a
+-- matching some loops with stitches
+-- match :: [OnNeedle] -> a -> ([OnNeedle], a)
+-- column :: a -> [a] ?
 
 -- Base stitches of knit and purl
 data Base = Knit | Purl deriving (Eq, Show, Read)
@@ -59,7 +66,9 @@ instance Instructable Side where
     expanded Back = "back"
 
 class Stitches a => ToOne a where
+    -- toOne :: [OnNeedle] -> a -> OnNeedle
 class Stitches a => FromOne a where
+    
 class Stitches a => ZeroToZero a where
 class Stitches a => ZeroToMany a where
 class Stitches a => ManyToMany a where
@@ -79,7 +88,6 @@ instance Stitches a => ZeroToZero (MoveLH a) where
 instance Stitches a => Stitches (MoveLH a) where
     uses _ = 0
     makes _ = 0
-    doStitches on (MoveLH sts) = undefined
 
 -- Move yarn to the given side
 data MoveYarn = MoveYarn Side deriving (Eq, Show, Read)
@@ -92,9 +100,21 @@ instance ZeroToZero MoveYarn where
 instance Stitches MoveYarn where
     uses _ = 0
     makes _ = 0
-    doStitches on (MoveYarn side) = undefined
 
 data Stitch = Stitch Base Side deriving (Eq, Show, Read)
+
+instance Instructable Stitch where
+    instr (Stitch b Front) = instr b
+    instr (Stitch b _) = instr b ++ "tbl"
+
+instance Stitches Stitch where
+    uses _ = 1
+    makes _ = 1
+
+instance ToOne Stitch where
+instance FromOne Stitch where
+instance OneToOne Stitch where
+
 data Slip = Slip Base deriving (Eq, Show, Read)
 data Tog = Tog Int Base Side deriving (Eq, Show, Read)
 data RHTog = RHTog Int Base Side deriving (Eq, Show, Read)
