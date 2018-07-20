@@ -2,15 +2,14 @@ module StitchTypes where
 
 import Data.Monoid
 
+data OnNeedle = YarnOver
+              | Loop Stitch deriving (Show, Eq, Read)
+
 class Reversable a where
     other :: a -> a
     alternating :: a -> Int -> [a]
     alternating _ 0 = []
     alternating a n = a : (alternating (other a) (n-1))
-
-
-class Stitchable a where
-    stitch :: Base -> a
 
 -- Type that says gives instruction
 class Instructable a where
@@ -27,8 +26,7 @@ class Instructable a where
 class (Eq a, Show a, Read a, Instructable a) => Stitches a where
     uses :: a -> Int
     makes :: a -> Int
-    conforms :: a -> Bool
-    -- doStitches :: [ON] -> a -> ([ON], [ON])
+    doStitches :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
 
 -- Base stitches of knit and purl
 data Base = Knit | Purl deriving (Eq, Show, Read)
@@ -37,8 +35,6 @@ instance Reversable Base where
     other Knit = Purl
     other Purl = Knit
 
-instance Stitchable Base where
-    stitch b = b
 
 -- Base is an instance of instructable?
 instance Instructable Base where
@@ -62,243 +58,60 @@ instance Instructable Side where
     expanded Front = "front"
     expanded Back = "back"
 
--- -> 1
--- combine all that make 1
-data ToOne = Dec ManyToOne
-           | ToOne OneToOne deriving (Eq, Show, Read)
+class Stitches a => ToOne a where
+class Stitches a => FromOne a where
+class Stitches a => ZeroToZero a where
+class Stitches a => ZeroToMany a where
+class Stitches a => ManyToMany a where
+class (Stitches a, ToOne a, FromOne a) => OneToOne a where
+class (Stitches a, ToOne a) => ManyToOne a where
+class (Stitches a, FromOne a) => OneToMany a where
 
+-- Do stitches in list then move them back to LH needle
+data MoveLH a = MoveLH [a] deriving (Eq, Show, Read)
 
-instance Stitchable ToOne where
-    stitch b = ToOne (stitch b)
-
-
-instance Instructable ToOne where
-    instr (Dec d) = instr d
-    instr (ToOne o) = instr o
-
-instance Stitches ToOne where
-    uses (Dec d) = uses d
-    uses (ToOne o) = uses o
-    makes (Dec d) = makes d
-    makes (ToOne o) = makes o
-    conforms a = makes a == 1
-
-
-data FromOne = Incr OneToMany
-             | FromOne OneToOne deriving (Eq, Show, Read)
-
-instance Stitchable FromOne where
-    stitch b = FromOne (stitch b)
-
-instance Instructable FromOne where
-    instr (Incr i) = instr i
-    instr (FromOne f) = instr f
-
-instance Stitches FromOne where
-    uses (Incr i) = uses i
-    uses (FromOne f) = uses f
-    makes (Incr i) = makes i
-    makes (FromOne f) = makes f
-    conforms s = uses s == 1
-
--- 0 -> 0
-data ZeroToZero = MoveLH [Stitch]
-                -- Not a yarn over
-                | MoveYarn deriving (Eq, Show, Read)
-
-instance Instructable ZeroToZero where
+instance Stitches a => Instructable (MoveLH a) where
     instr (MoveLH sts) = (commaInstr sts) ++ ", slip last " ++ (show $ getSum (foldMap (Sum . uses) sts)) ++
-                           " st(s) back to the LH needle"
-    instr MoveYarn = "move yarn to other side of needle"
+                         " st(s) back to the LH needle"
 
+instance Stitches a => ZeroToZero (MoveLH a) where
 
-instance Stitches ZeroToZero where
+instance Stitches a => Stitches (MoveLH a) where
     uses _ = 0
     makes _ = 0
-    conforms _ = True
+    doStitches on (MoveLH sts) = undefined
 
--- 1 -> 1
-data OneToOne = Stitch Base Side
-              | Slip Base deriving (Eq, Show, Read)
+-- Move yarn to the given side
+data MoveYarn = MoveYarn Side deriving (Eq, Show, Read)
 
-instance Stitchable OneToOne where
-    stitch b = Stitch b Front
+instance Instructable MoveYarn where
+    instr (MoveYarn side) = "move yarn to " ++ (expanded side) ++ " of needle"
 
-instance Instructable OneToOne where
-    instr (Stitch b Front) = instr b
-    instr (Stitch b Back) = (instr b) ++ "tbl"
-    instr (Slip b) = "sl "++(expanded b) ++ "-wise"
+instance ZeroToZero MoveYarn where
 
-instance Stitches OneToOne where
-    uses (Stitch _ _) = 1
-    uses (Slip _) = 1
-    makes (Stitch _ _) = 1
-    makes (Slip _) = 1
-    conforms a = uses a == 1 && makes a == 1
-
--- + -> 1
-data ManyToOne = Tog Int Base Side
-               | RHTog Int Base Side
-               | PassOver [Stitch] ToOne deriving (Eq, Show, Read)
-
-instance Instructable ManyToOne where
-    instr (Tog n b s) = (instr (Stitch b s)) ++ (show n) ++ "tog"
-    instr (RHTog n b s) = "sl " ++ (show n) ++ (instr (Stitch b s)) ++ " slipped stitches"
-    instr (PassOver sts st) = ("first " ++ (commaInstr sts) ++ " then "
-                               ++ (instr st) ++ "pass previous stitches over last stitch")
-
-instance Stitches ManyToOne where
-    uses (Tog n _ _) = n
-    uses (RHTog n _ _) = n
-    uses (PassOver sts st) = foldl (+) 0 (uses <$> sts) + (uses st)
-    makes (PassOver _ st) = makes st
-    makes _ = 1
-    conforms s = uses s > 1 && makes s == 1
-
-
-data IntoStitch = IntoBase Base Side
-                | IntoYo deriving (Eq, Show, Read)
-
-instance Instructable IntoStitch where
-    instr (IntoBase b s) = instr (Stitch b s)
-    instr IntoYo = "yo"
-
--- 1 -> +
--- alternate f / b or k / p or k / yo
--- yo can't be first
-data IntoNext = IntoEnd Base Side
-              | IntoNext IntoStitch IntoNext deriving (Eq, Show, Read)
-
-data OneToMany = IntoStart Base Side IntoNext deriving (Eq, Show, Read)
-
-instance Instructable OneToMany where
-    instr (IntoStart Knit Front (IntoEnd Knit Back)) = "kfb"
-    instr (IntoStart Knit Back (IntoEnd Knit Front)) = "kbf"
-    instr (IntoStart Purl Front (IntoEnd Purl Back)) = "pfb"
-    instr (IntoStart Purl Back (IntoEnd Purl Front)) = "pbf"
-    instr (IntoStart b s n) = "(" ++ (instr $ Stitch b s) ++ ", " ++ (instr' n) ++ ") into next stitch"
-        where
-            instr' :: IntoNext -> String
-            instr' (IntoNext i n) = (instr i) ++ ", " ++ (instr' n)
-            instr' (IntoEnd b s) = instr $ Stitch b s
-
-
-instance Stitches OneToMany where
-    uses _ = 1
-    makes (IntoStart _ _ n) = 1 + (makes' n)
-        where
-            makes' :: IntoNext -> Int
-            makes' (IntoEnd _ _) = 1
-            makes' (IntoNext _ n) = 1 + (makes' n)
-    conforms (IntoStart b1 s1 (IntoEnd b2 s2)) = b1 /= b2 || s1 /= s2
-    conforms (IntoStart b s n) = conforms' (IntoBase b s) n
-        where
-            conforms' :: IntoStitch -> IntoNext -> Bool
-            conforms' i@(IntoBase b1 s1) (IntoEnd b2 s2) = b1 /= b2 || s1 /= s2
-            conforms' _ (IntoEnd _ _) = True
-            conforms' IntoYo (IntoNext IntoYo n) = conforms' IntoYo n
-            conforms' i1 (IntoNext i2 n) = i1 /= i2 && conforms' i2 n
-
--- 0 -> +
-data ZeroToMany = Yo
-               | Make Side FromOne
-               | Below FromOne deriving (Eq, Show, Read)
-
-instance Instructable ZeroToMany where
-    instr Yo = "yo"
-    instr (Make s (FromOne st@(Stitch b side))) = "m1" ++ lean ++ stitch
-        where
-            lean = case s of
-                    Front -> "l"
-                    Back -> "r"
-            stitch = case b of
-                        Knit -> case side of
-                                    Front -> ""
-                                    _ -> instr st
-                        _ -> instr st
-    instr (Make s st) = "insert between needles from " ++ (expanded s) ++ " to " ++
-                        (expanded $ other s) ++ " and " ++ (instr st)
-    instr (Below st) = (instr st) ++ " into stitch below next stitch"
-    expanded (Make s st) = "insert needle into yarn between stitches from the " ++
-                           (expanded s) ++ " and " ++ (expanded st)
-    expanded s = instr s
-
-instance Stitches ZeroToMany where
+instance Stitches MoveYarn where
     uses _ = 0
-    makes Yo = 1
-    makes (Make _ st) = makes st
-    makes (Below st) = makes st
-    conforms s = uses s == 0 && makes s > 0
+    makes _ = 0
+    doStitches on (MoveYarn side) = undefined
 
--- * -> * or + -> +?
-data ManyToMany = Hold Side [Stitch] [Stitch] deriving (Eq, Show, Read)
+data Stitch = Stitch Base Side deriving (Eq, Show, Read)
+data Slip = Slip Base deriving (Eq, Show, Read)
+data Tog = Tog Int Base Side deriving (Eq, Show, Read)
+data RHTog = RHTog Int Base Side deriving (Eq, Show, Read)
+data PassOver a = PassOer [a] a deriving (Eq, Show, Read)
+data IntoStitch a = IntoStitch [a] deriving (Eq, Show, Read)
+data Yo = Yo deriving (Eq, Show, Read)
+data Make a = Make Side a deriving (Eq, Show, Read)
+data DipStich = DipStitch Int deriving (Eq, Show, Read)
+data Drop = Drop deriving (Show, Eq, Read)
+data Cable a = Hold Side [a] [a] deriving (Eq, Show, Read)
 
-instance Instructable ManyToMany where
-    instr (Hold s sts1 sts2) = "Place next " ++ (show (sum $ uses <$> sts1)) ++ " stitches on cn, hold in " ++
-                               (expanded s) ++ ", " ++ (commaInstr sts2) ++ ", " ++ (commaInstr sts1) ++ " from cable needle"
-
-instance Stitches ManyToMany where
-    uses (Hold _ sts1 sts2) = (sum $ uses <$> sts1) + (sum $ uses <$> sts2)
-    makes (Hold _ sts1 sts2) = (sum $ makes <$> sts1) + (sum $ makes <$> sts2)
-    conforms (Hold s sts1 sts2) = (sum $ uses <$> sts1) > 0 && (sum $ uses <$> sts2) > 0 &&
-                                  (and $ conforms <$> sts1) && (and $ conforms <$> sts2)
-
-
-data Stitch = Base OneToOne
-            | Together ManyToOne
-            | Into OneToMany
-            | Makes ZeroToMany
-            | Cable ManyToMany
-            | Move ZeroToZero deriving (Eq, Show, Read)
-
-instance Stitchable Stitch where
-    stitch b = Base (stitch b)
+data RowType = RowSide Side
+             | Round
+             | Short deriving (Show, Eq, Read)
 
 
-instance Instructable Stitch where
-    instr (Base b) = instr b
-    instr (Together t) = instr t
-    instr (Into i) = instr i
-    instr (Makes m) = instr m
-    instr (Cable c) = instr c
-    instr (Move m) = instr m
-
-instance Stitches Stitch where
-    uses (Base b) = uses b
-    uses (Together t) = uses t
-    uses (Into i) = uses i
-    uses (Makes m) = uses m
-    uses (Cable c) = uses c
-    uses (Move m) = uses m
-
-    makes (Base b) = makes b
-    makes (Together t) = makes t
-    makes (Into i) = makes i
-    makes (Makes m) = makes m
-    makes (Cable c) = makes c
-    makes (Move m) = makes m
-
-    conforms (Base b) = conforms b
-    conforms (Together t) = conforms t
-    conforms (Into i) = conforms i
-    conforms (Makes m) = conforms m
-    conforms (Cable c) = conforms c
-    conforms (Move m) = conforms m
+data Row a = Row RowType [a] deriving (Show, Eq, Read)
 
 
-data Row = Row Side [Stitch]
-         | Round [Stitch]
-         | Turn [Stitch] deriving (Show, Eq, Read)
-
-instance Instructable Row where
-    instr (Row side sts) = let facing = case side of
-                                            Front -> "RS"
-                                            Back -> "WS"
-                                in  "With " ++ facing ++ " side facing " ++
-                                    (commaInstr sts)
-
-    instr (Round sts) = "Continue to next round and " ++ (commaInstr sts)
-    instr (Turn sts) = (commaInstr sts) ++ " and turn"
-
-
-newtype Panel = Panel [Row] deriving (Show, Eq, Read)
+newtype Panel a = Panel [Row a] deriving (Show, Eq, Read)
