@@ -35,6 +35,12 @@ class (Eq a, Show a, Read a, Instructable a) => Stitches a where
 -- match :: [OnNeedle] -> a -> ([OnNeedle], a)
 -- column :: a -> [a] ?
 
+data Needle = RH | LH deriving (Eq, Show, Read)
+
+instance Instructable Needle where
+    instr RH = "RH"
+    instr LH = "LH"
+
 -- Base stitches of knit and purl
 data Base = Knit | Purl deriving (Eq, Show, Read)
 
@@ -68,7 +74,7 @@ instance Instructable Side where
 class Stitches a => ToOne a where
     -- toOne :: [OnNeedle] -> a -> OnNeedle
 class Stitches a => FromOne a where
-    
+
 class Stitches a => ZeroToZero a where
 class Stitches a => ZeroToMany a where
 class Stitches a => ManyToMany a where
@@ -116,10 +122,58 @@ instance FromOne Stitch where
 instance OneToOne Stitch where
 
 data Slip = Slip Base deriving (Eq, Show, Read)
-data Tog = Tog Int Base Side deriving (Eq, Show, Read)
-data RHTog = RHTog Int Base Side deriving (Eq, Show, Read)
-data PassOver a = PassOer [a] a deriving (Eq, Show, Read)
+
+instance Instructable Slip where
+    instr (Slip b) = "slip " ++ (expanded b) ++ "-wise"
+
+instance Stitches Slip where
+    uses _ = 1
+    makes _ = 1
+
+instance ToOne Slip where
+instance FromOne Slip where
+
+data Tog = Tog Needle Int Stitch deriving (Eq, Show, Read)
+
+instance Instructable Tog where
+    instr (Tog LH n st) = (instr st) ++ (show n) ++ "tog"
+    instr (Tog RH 2 (Stitch Knit Front)) = "ssk"
+    instr (Tog RH n st) = "sl " ++ (show n) ++ " sts and " ++ (instr st) ++ " tog"
+
+instance Stitches Tog where
+    uses (Tog _ n st) = n
+    makes _ = 1
+
+instance ToOne Tog where
+
+data PassOver a b = PassOver [a] b deriving (Eq, Show, Read)
+
+instance (Stitches a, ToOne b) => Instructable (PassOver a b) where
+    instr _ = undefined
+
+instance (Stitches a, ToOne b) => Stitches (PassOver a b) where
+    uses (PassOver sts st) = (getSum $ foldMap (Sum . uses) sts) + (uses st)
+    makes _ = 1
+
+instance (Stitches a, ToOne b) => ToOne (PassOver a b) where
+
+data LHPassOver = LHPassOver Int deriving (Eq, Show, Read)
+
+instance Instructable LHPassOver where
+    instr (LHPassOver n) = undefined
+
+instance Stitches LHPassOver where
+    uses (LHPassOver n) = n + 1
+    makes _ = 1
+
+instance ToOne LHPassOver where
+
+
 data IntoStitch a = IntoStitch [a] deriving (Eq, Show, Read)
+
+instance Stitches a => Instructable (IntoStitch a) where
+    instr = undefined
+
 data Yo = Yo deriving (Eq, Show, Read)
 data Make a = Make Side a deriving (Eq, Show, Read)
 data DipStich = DipStitch Int deriving (Eq, Show, Read)
