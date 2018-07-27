@@ -28,7 +28,7 @@ class (Eq a, Show a, Read a, Instructable a) => Stitchable a where
     toStitches :: a -> Stitches
     uses :: a -> Int
     makes :: a -> Int
-    check :: a -> Bool
+--    check :: a -> Bool
 --    doStitchable :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
 -- doStitchable :: [[OnNeedle]] -> a -> ([[OnNeedle]], [[OnNeedle]]) ?
 
@@ -88,10 +88,6 @@ instance Stitchable a => Instructable (Row a) where
                                     "On " ++ side ++ " " ++ (commaInstr sts)
     instr (Row Round sts) = "Continue in round " ++ (commaInstr sts)
     instr (Row Short sts) = (commaInstr sts) ++ " and turn"
-
-instance Stitchable a => Stitchable (Row a) where
-    uses (Row _ sts) = getSum $ foldMap (Sum . uses) sts
-    makes (Row _ sts) = getSum $ foldMap (Sum . makes) sts
 
 newtype Panel a = Panel [Row a] deriving (Show, Eq, Read)
 
@@ -170,6 +166,7 @@ instance Instructable Together where
     instr (PassOver sts st) = "(" ++ (commaInstr sts) ++ ") and " ++ (instr st) ++ " then pass sts in () over last st"
 
 instance Stitchable Together where
+    toStitches = Together
     uses (Tog _ n st) = n
     uses (PassOver sts st) = (getSum $ foldMap (Sum . uses) sts) + (uses st)
     makes _ = 1
@@ -190,7 +187,7 @@ instance Stitchable LHPassOver where
 
 data SkipSt = StitchSkip Stitch
             | TogSkip Together
-            | IntoSkip IntoSt
+            | IntoSkip IntoSt deriving (Eq, Show, Read)
 
 instance Instructable SkipSt where
     instr (StitchSkip s) = instr s
@@ -198,14 +195,25 @@ instance Instructable SkipSt where
     instr (IntoSkip i) = instr i
 
 instance Stitchable SkipSt where
-    
+    toStitches (StitchSkip s) = Stitch s
+    toStitches (TogSkip t) = Together t
+    toStitches (IntoSkip i) = IntoSt i
+
+    uses (StitchSkip s) = uses s
+    uses (TogSkip t) = uses t
+    uses (IntoSkip i) = uses i
+
+    makes (StitchSkip s) = makes s
+    makes (TogSkip t) = makes t
+    makes (IntoSkip i) = makes i
 
 data Skip = SkipOver Side Int SkipSt [Stitches] deriving (Eq, Show, Read)
 
-data Instructable Skip where
-    instr (SkipOver s n st sts) = "skip " ++ (show n) ++ "sts and from the " ++ (expanded s) ++ " " ++ st ++ ", then " ++ (commaInstr sts)
+instance Instructable Skip where
+    instr (SkipOver s n st sts) = "skip " ++ (show n) ++ "sts and from the " ++ (expanded s) ++
+                                  " " ++ (instr st) ++ ", then " ++ (commaInstr sts)
 
-data Stitchable Skip where
+instance Stitchable Skip where
     toStitches s = Skip s
     uses (SkipOver _ n _ _) = n + 1
     makes (SkipOver _ _ _ sts) = getSum $ foldMap (Sum . makes) sts
@@ -214,46 +222,99 @@ data Stitchable Skip where
 data IntoStitches = IntoStitch Stitch
                   | IntoYo YarnOver deriving (Eq, Show, Read)
 
-data Instructable IntoStitches where
+instance Instructable IntoStitches where
     instr (IntoStitch s) = instr s
     instr (IntoYo y) = instr y
 
-data Stitchable IntoStitches where
-    toStitches (IntoStitches s) = Stitch s
+instance Stitchable IntoStitches where
+    toStitches (IntoStitch s) = Stitch s
     toStitches (IntoYo y) = YarnOver y
 
-data IntoTog = IntoSts IntoStitches
-             | SkipSts Skip deriving (Eq, Show, Read)
+    uses (IntoStitch s) = uses s
+    uses (IntoYo y) = uses y
 
-data Instructable IntoTog where
+    makes (IntoStitch s) = makes s
+    makes (IntoYo y) = makes y
+
+
+data IntoTog = IntoSts IntoStitches
+             | SkipSts Skip
+             | TogInto IntoSt deriving (Eq, Show, Read)
+
+instance Instructable IntoTog where
     instr (IntoSts i) = instr i
     instr (SkipSts s) = instr s
+    instr (TogInto i) = instr i
+
+instance Stitchable IntoTog where
+    toStitches (IntoSts i) = toStitches i
+    toStitches (SkipSts s) = Skip s
+    toStitches (TogInto i) = IntoSt i
+
+    uses (IntoSts i) = uses i
+    uses (SkipSts s) = uses s
+    uses (TogInto i) = uses i
+
+    makes (IntoSts i) = makes i
+    makes (SkipSts s) = makes s
+    makes (TogInto i) = makes i
+
 
 data IntoSt = Into [IntoStitches]
-            | IntTog Together [IntoTog] deriving (Eq, Show, Read)
+            | IntoTog Together [IntoTog] deriving (Eq, Show, Read)
 
 instance Instructable IntoSt where
-    instr = undefined
+    instr (Into sts) = "(" ++ (commaInstr sts) ++ ") into next stitch"
+    instr (IntoTog t sts) = (instr t) ++ " leaving sts on LH needle, (" ++ (commaInstr sts) ++ ") into same stitches"
+
+instance Stitchable IntoSt where
+    toStitches i = IntoSt i
+
+    uses (Into _) = 1
+    uses (IntoTog _ sts) = getSum $ foldMap (Sum . uses) sts
+
+    makes (Into sts) = getSum $ foldMap (Sum . makes) sts
+    makes (IntoTog _ sts) = getSum $ foldMap (Sum . makes) sts
 
 
 data PickSts = StitchPick Stitch
              | IntoPick IntoSt deriving (Eq, Show, Read)
 
+instance Instructable PickSts where
+    instr (StitchPick s) = instr s
+    instr (IntoPick i) = instr i
+
+instance Stitchable PickSts where
+    toStitches (StitchPick s) = Stitch s
+    toStitches (IntoPick i) = IntoSt i
+
+    uses _ = 0
+    makes (StitchPick s) = makes s
+    makes (IntoPick i) = makes i
+
 data Pick = Make Side PickSts
-          | DipStitch Int  deriving (Eq, Show, Read)
+          | DipStitch Int PickSts deriving (Eq, Show, Read)
+
 instance Instructable Pick where
-    instr = undefined
-    --instr (Make side st) = "Pick up yarn btw sts from " ++ (expanded side) ++ " to " ++ (expanded (other side)) ++ " and " ++ (instr st)
-    --instr (DipStitch n st) = "Pick up st " ++ (show n) ++ " rows below and " ++ (instr st)
+    instr (Make side st) = "Pick up yarn btw sts from " ++ (expanded side) ++ " to " ++ (expanded (other side)) ++ " and " ++ (instr st)
+    instr (DipStitch n st) = "Pick up st " ++ (show n) ++ " rows below and " ++ (instr st)
 
 instance Stitchable Pick where
+    toStitches = Pick
     uses _ = 0
-    makes _ = undefined
-    --makes (Make s st) = makes st
-    --makes (DipStitch n st) = makes st
+    makes (Make s st) = makes st
+    makes (DipStitch n st) = makes st
 
 
 data YarnOver = Yo deriving (Eq, Show, Read)
+
+instance Instructable YarnOver where
+    instr Yo = "yo"
+
+instance Stitchable YarnOver where
+    toStitches = YarnOver
+    uses _ = 0
+    makes _ = 1
 
 data DropSt = Drop deriving (Show, Eq, Read)
 
@@ -261,6 +322,7 @@ instance Instructable DropSt where
     instr Drop = "drop next stitch"
 
 instance Stitchable DropSt where
+    toStitches = DropSt
     uses Drop = 1
     makes _ = 0
 
@@ -271,6 +333,7 @@ instance Instructable Cable where
                             (expanded s) ++ ", " ++ (commaInstr sts) ++ " then " ++ (commaInstr cn) ++ " from cn"
 
 instance Stitchable Cable where
+    toStitches = Cable
     uses (Hold _ sts1 sts2) = let summer = foldMap (Sum . uses) in
                                 getSum $ (summer sts1 + summer sts2)
     makes (Hold _ sts1 sts2) = let summer = foldMap (Sum . makes) in
@@ -278,7 +341,15 @@ instance Stitchable Cable where
 
 
 -- implied turn back after stitches worked
-data Turn = TurnWork [Stitches] deriving (Eq, Show, Read)
+data Turn = TurnWork [Stitches] [Stitches] deriving (Eq, Show, Read)
+
+instance Instructable Turn where
+    instr (TurnWork sts1 sts2) = (commaInstr sts1) ++ ", turn work and " ++ (commaInstr sts2) ++ " then turn back"
+
+instance Stitchable Turn where
+    toStitches = Turn
+    uses _ = 0
+    makes _ = 0
 
 data Stitches = MoveLH MoveLH
               | MoveYarn MoveYarn
@@ -290,7 +361,8 @@ data Stitches = MoveLH MoveLH
               | YarnOver YarnOver
               | DropSt DropSt
               | Cable Cable
-              | Turn Turn deriving (Eq, Show, Read)
+              | Turn Turn
+              | Skip Skip deriving (Eq, Show, Read)
 
 instance Instructable Stitches where
     instr (MoveLH m) = instr m
@@ -304,6 +376,7 @@ instance Instructable Stitches where
     instr (DropSt d) = instr d
     instr (Cable c) = instr c
     instr (Turn t) = instr t
+    instr (Skip s) = instr s
 
 instance Stitchable Stitches where
     toStitches sts = sts
@@ -318,6 +391,7 @@ instance Stitchable Stitches where
     uses (DropSt d) = uses d
     uses (Cable c) = uses c
     uses (Turn t) = uses t
+    uses (Skip s) = uses s
 
     makes (MoveLH m) = makes m
     makes (MoveYarn m) = makes m
@@ -329,4 +403,5 @@ instance Stitchable Stitches where
     makes (DropSt d) = makes d
     makes (Cable c) = makes c
     makes (Turn t) = makes t
+    makes (Skip s) = makes s
 
