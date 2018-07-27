@@ -1,5 +1,6 @@
 module PatternRepeats where
 
+import StitchTypes
 
 -- n-branch tree
 data Repeat a = Repeat a Int
@@ -11,7 +12,7 @@ incrRepeat (Repeat a n) = (Repeat a (n+1))
 incrRepeat (RepeatPat r n) = (RepeatPat r (n+1))
 
 
-expandPattern :: Repeat Action -> [Action]
+expandPattern :: Repeat  -> [Stitches]
 expandPattern (Repeat a n) = take n (repeat a)
 expandPattern (RepeatPat _ 0) = []
 expandPattern (RepeatPat [] n) = []
