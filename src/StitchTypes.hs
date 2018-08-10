@@ -2,6 +2,8 @@ module StitchTypes where
 
 import Data.Monoid
 
+import Data.Tree
+
 data OnNeedle = Wrap
               | Loop Stitch deriving (Show, Eq, Read)
 
@@ -34,6 +36,7 @@ class (Eq a, Show a, Read a, Instructable a) => Stitchable a where
     allMakes as = sum $ makes <$> as
     check :: a -> Bool
     nextRow :: RowType -> a -> [Stitches]
+    matchStitches :: a -> [Stitches] -> (Forest (Maybe Stitches), [Stitches])
 --    doStitchable :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
 -- doStitchable :: [[OnNeedle]] -> a -> ([[OnNeedle]], [[OnNeedle]]) ?
 
@@ -407,6 +410,7 @@ instance Stitchable YarnOver where
     nextRow (RowSide Back) _ = [Stitch (St Purl Front)]
     nextRow (Short Back) _ = [Stitch (St Purl Front)]
     nextRow _ _ = [Stitch (St Knit Front)]
+    matchStitches _ sts = (Nothing, sts)
 
 data DropSt = Drop deriving (Show, Eq, Read)
 
@@ -419,6 +423,7 @@ instance Stitchable DropSt where
     makes _ = 0
     check _ = True
     nextRow _ _ = []
+    matchStitches = undefined
 
 
 data Cable = Hold Side [Stitches] [Stitches] deriving (Eq, Show, Read)
@@ -433,6 +438,7 @@ instance Stitchable Cable where
     check _ = True
 
     nextRow r (Hold _ sts1 sts2) = (concat $ (nextRow r) <$> sts1) ++ (concat $ (nextRow r) <$> sts1)
+    matchStitches (Hold _ sts1 sts2) = undefined
 
 
 -- implied turn back after stitches worked
@@ -447,6 +453,7 @@ instance Stitchable Turn where
     makes _ = 0
     check (TurnWork sts1 sts2) = (allMakes sts1) == (allUses sts2)
     nextRow _ _ = []
+    matchStitches = undefined
 
 data Stitches = MoveLH MoveLH
               | MoveYarn MoveYarn
@@ -525,3 +532,15 @@ instance Stitchable Stitches where
     nextRow r (Cable c) = nextRow r c
     nextRow r (Turn t) = nextRow r t
     nextRow r (Skip s) = nextRow r s
+
+    matchStitches (MoveLH m) = matchStitches m
+    matchStitches (MoveYarn m) = matchStitches m
+    matchStitches (Stitch s) = matchStitches s
+    matchStitches (Together t) = matchStitches t
+    matchStitches (LHPassOver l) = matchStitches l
+    matchStitches (Pick p) = matchStitches p
+    matchStitches (YarnOver y) = matchStitches y
+    matchStitches (DropSt d) = matchStitches d
+    matchStitches (Cable c) = matchStitches c
+    matchStitches (Turn t) = matchStitches t
+    matchStitches (Skip s) = matchStitches s
