@@ -1,23 +1,36 @@
 What I want it to do 
 - store patterns
 - input patterns
+    + pdfs?
+    + text files to begin
+    + define sub-language
+    + translate old patterns to IR
     + easly 
     + intuitively
 - display patterns
     + succingtly
+    + both chart / text
+    + subset of pattern ("square" showing around rows / columns)
     + interactively?
     + realistically display fabric
 - generate more pattern
     + more rows
     + more repeats in a row
+    + stretch goal - generate pattern from collection of patterns even when
+      adding new patterns with new stitches
 - compose patterns
     + more than one pattern in a row
-    + 
+    + panels / horizontally and vertically
+    + fill in if increasing
+- check patterns
+    + verify rows from -> to match
+    + check if pattern doesn't make sense (ie. knitting into YO in a row)
 - encode size into patterns
 - encode color patterns 
 - encode lace patterns
 - encode increases and decreases
 - round vs. back and forth
-- whole pattern representation 
+- whole pattern representation?
     + multiple pieces of fabric
     + instructions / sewing
+    + support picking up stitches?
