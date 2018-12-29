@@ -25,7 +25,6 @@ class Instructable a where
 
 -- Type that can be a stitch
 class (Eq a, Show a, Read a, Instructable a) => Stitchable a where
-    toStitches :: a -> Stitches
     uses :: a -> Int
     allUses :: [a] -> Int
     allUses as = sum $ uses <$> as
@@ -33,9 +32,38 @@ class (Eq a, Show a, Read a, Instructable a) => Stitchable a where
     allMakes :: [a] -> Int
     allMakes as = sum $ makes <$> as
     check :: a -> Bool
-    nextRow :: RowType -> a -> [Stitches]
---    doStitchable :: [OnNeedle] -> a -> ([OnNeedle], [OnNeedle])
--- doStitchable :: [[OnNeedle]] -> a -> ([[OnNeedle]], [[OnNeedle]]) ?
+    makeInstance :: a -> StitchInstance
+    makeInstance s =
+        StInstance (show s) (uses s) (makes s) (check s)
+
+unInstance :: Stitchable a => StitchInstance -> a
+unInstance = read . showStitch
+
+data StitchInstance = StInstance
+    { showStitch :: String
+    , stitchUses :: Int
+    , stitchMakes :: Int
+    , stitchCheck :: Bool
+    } deriving (Show, Read, Eq)
+
+instance Instructable StitchInstance where
+    instr = showStitch
+
+instance Stitchable StitchInstance where
+    uses = stitchUses
+    makes = stitchMakes
+    check = stitchCheck
+    makeInstance = id
+
+{-
+instance Show StitchInstance where
+    show inst = showStitch inst
+
+instance Read StitchInstance where
+    readsPrec _ a =
+        let st = read a :: Stitchable a => a in
+            [(makeInstance st,"")]
+-}
 
 -- TODO?
 -- parse :: String -> a
@@ -100,12 +128,11 @@ instance Stitchable a => Instructable (Row a) where
     instr (Row (Short s) sts) = (commaInstr sts) ++ " and turn"
 
 instance Stitchable a => Stitchable (Row a) where
-    toStitches _ = undefined
     uses (Row _ sts) = allUses sts
     makes (Row _ sts) = allMakes sts
     -- TODO: more checks
     check (Row _ sts) = and $ check <$> sts
-    nextRow r (Row _ sts) = concat $ (nextRow r) <$> sts
+    --nextRow r (Row _ sts) = concat $ (nextRow r) <$> sts
 
 newtype Panel a = Panel [Row a] deriving (Show, Eq, Read)
 
@@ -119,18 +146,16 @@ newtype Panel a = Panel [Row a] deriving (Show, Eq, Read)
 -- MoveLH - Move to left hand needle
 --        - do stitches and move them back to LH needle
 
-data MoveLH = MoveBack [Stitches] deriving (Eq, Show, Read)
+data MoveLH = MoveBack [StitchInstance] deriving (Eq, Show, Read)
 
 instance Instructable MoveLH where
     instr (MoveBack sts) = (commaInstr sts) ++ ", slip last " ++ (show $ allUses sts) ++
                            " st(s) back to the LH needle"
 
 instance Stitchable MoveLH where
-    toStitches m = MoveLH m
     uses _ = 0
     makes _ = 0
     check (MoveBack sts) = and $ check <$> sts
-    nextRow _ _ = []
 
 -- MoveYarn - move working yarn to other side
 data MoveYarn = Wyi Side deriving (Eq, Show, Read)
@@ -139,11 +164,9 @@ instance Instructable MoveYarn where
     instr (Wyi side) = "move yarn to " ++ (expanded side) ++ " of needle"
 
 instance Stitchable MoveYarn where
-    toStitches m = MoveYarn m
     uses _ = 0
     makes _ = 0
     check _ = True
-    nextRow _ _ = []
 
 -- Stitch - base stitches k, p, ktbl, ptbl, sl knit-wise, sl purl-wise
 data Stitch = St Base Side
@@ -155,12 +178,11 @@ instance Instructable Stitch where
     instr (Slip b) = "slip " ++ (expanded b) ++ "-wise"
 
 instance Stitchable Stitch where
-    toStitches s = Stitch s
     uses _ = 1
     makes _ = 1
     check _ = True
-    nextRow Round s = [toStitches s]
-    nextRow _ (St b s) = [toStitches (St (other b) s)]
+    --nextRow Round s = [toStitches s]
+    --nextRow _ (St b s) = [toStitches (St (other b) s)]
 
 -- Together - Knit stitches together either ssk or k2tog but with any number
 data TogSts = StitchTog Stitch
@@ -171,9 +193,6 @@ instance Instructable TogSts where
     instr (TogSts t) = instr t
 
 instance Stitchable TogSts where
-    toStitches (StitchTog s) = Stitch s
-    toStitches (TogSts t) = Together t
-
     uses (StitchTog s) = uses s
     uses (TogSts t) = uses t
 
@@ -183,11 +202,11 @@ instance Stitchable TogSts where
     check (StitchTog s) = check s
     check (TogSts s) = check s
 
-    nextRow r (StitchTog s) = nextRow r s
-    nextRow r (TogSts s) = nextRow r s
+    --nextRow r (StitchTog s) = nextRow r s
+    --nextRow r (TogSts s) = nextRow r s
 
 data Together = Tog Needle Int Stitch
-              | PassOver [Stitches] TogSts deriving (Eq, Show, Read)
+              | PassOver [StitchInstance] TogSts deriving (Eq, Show, Read)
 
 instance Instructable Together where
     instr (Tog LH n st) = (instr st) ++ (show n) ++ "tog"
@@ -196,14 +215,13 @@ instance Instructable Together where
     instr (PassOver sts st) = "(" ++ (commaInstr sts) ++ ") and " ++ (instr st) ++ " then pass sts in () over last st"
 
 instance Stitchable Together where
-    toStitches = Together
     uses (Tog _ n st) = n
     uses (PassOver sts st) = (allUses sts) + (uses st)
     makes _ = 1
     check (Tog _ _ s) = check s
     check (PassOver sts t) = (and $ check <$> sts) && (check t)
-    nextRow r (Tog _ _ s) = nextRow r s
-    nextRow r (PassOver _ t) = nextRow r t
+    --nextRow r (Tog _ _ s) = nextRow r s
+    --nextRow r (PassOver _ t) = nextRow r t
 
 
 -- LHPassOver - pass stitches on left side over first stitch
@@ -213,11 +231,9 @@ instance Instructable LHPassOver where
     instr (LeftPassOver n) = "Pass next " ++ (show n) ++ " sts over first stitch on LH needle"
 
 instance Stitchable LHPassOver where
-    toStitches l = LHPassOver l
     uses (LeftPassOver n) = n
     makes _ = 0
     check _ = True
-    nextRow _ _ = []
 
 -- Skip - Skip and do another stitch and then do all stitches up to it
 
@@ -231,10 +247,6 @@ instance Instructable SkipSt where
     instr (IntoSkip i) = instr i
 
 instance Stitchable SkipSt where
-    toStitches (StitchSkip s) = Stitch s
-    toStitches (TogSkip t) = Together t
-    toStitches (IntoSkip i) = IntoSt i
-
     uses (StitchSkip s) = uses s
     uses (TogSkip t) = uses t
     uses (IntoSkip i) = uses i
@@ -247,22 +259,23 @@ instance Stitchable SkipSt where
     check (TogSkip t) = check t
     check (IntoSkip i) = check i
 
-    nextRow r (StitchSkip s) = nextRow r s
-    nextRow r (TogSkip t) = nextRow r t
-    nextRow r (IntoSkip i) = nextRow r i
+    --nextRow r (StitchSkip s) = nextRow r s
+    --nextRow r (TogSkip t) = nextRow r t
+    --nextRow r (IntoSkip i) = nextRow r i
 
-data Skip = SkipOver Side Int SkipSt [Stitches] deriving (Eq, Show, Read)
+
+data Skip = SkipOver Side Int SkipSt [StitchInstance] deriving (Eq, Show, Read)
 
 instance Instructable Skip where
     instr (SkipOver s n st sts) = "skip " ++ (show n) ++ "sts and from the " ++ (expanded s) ++
                                   " " ++ (instr st) ++ ", then " ++ (commaInstr sts)
 
 instance Stitchable Skip where
-    toStitches s = Skip s
     uses (SkipOver _ n _ _) = n + 1
     makes (SkipOver _ _ _ sts) = allMakes sts
     check (SkipOver _ n _ sts) = n == (allUses sts)
-    nextRow r (SkipOver _ _ s sts) = (nextRow r s) ++ (concat $ (nextRow r) <$> sts)
+    --nextRow r (SkipOver _ _ s sts) = (nextRow r s) ++ (concat $ (nextRow r) <$> sts)
+
 
 -- IntoSt - knit into stitches
 data IntoStitches = IntoStitch Stitch
@@ -273,9 +286,6 @@ instance Instructable IntoStitches where
     instr (IntoYo y) = instr y
 
 instance Stitchable IntoStitches where
-    toStitches (IntoStitch s) = Stitch s
-    toStitches (IntoYo y) = YarnOver y
-
     uses (IntoStitch s) = uses s
     uses (IntoYo y) = uses y
 
@@ -285,8 +295,8 @@ instance Stitchable IntoStitches where
     check (IntoStitch s) = check s
     check (IntoYo y) = check y
 
-    nextRow r (IntoStitch s) = nextRow r s
-    nextRow r (IntoYo yo) = nextRow r yo
+    --nextRow r (IntoStitch s) = nextRow r s
+    --nextRow r (IntoYo yo) = nextRow r yo
 
 
 data IntoTog = IntoSts IntoStitches
@@ -299,10 +309,6 @@ instance Instructable IntoTog where
     instr (TogInto i) = instr i
 
 instance Stitchable IntoTog where
-    toStitches (IntoSts i) = toStitches i
-    toStitches (SkipSts s) = Skip s
-    toStitches (TogInto i) = IntoSt i
-
     uses (IntoSts i) = uses i
     uses (SkipSts s) = uses s
     uses (TogInto i) = uses i
@@ -315,9 +321,9 @@ instance Stitchable IntoTog where
     check (SkipSts s) = check s
     check (TogInto i) = check i
 
-    nextRow r (IntoSts i) = nextRow r i
-    nextRow r (SkipSts s) = nextRow r s
-    nextRow r (TogInto i) = nextRow r i
+    --nextRow r (IntoSts i) = nextRow r i
+    --nextRow r (SkipSts s) = nextRow r s
+    --nextRow r (TogInto i) = nextRow r i
 
 data IntoSt = Into [IntoStitches]
             | IntoTog Together [IntoTog] deriving (Eq, Show, Read)
@@ -327,8 +333,6 @@ instance Instructable IntoSt where
     instr (IntoTog t sts) = (instr t) ++ " leaving sts on LH needle, (" ++ (commaInstr sts) ++ ") into same stitches"
 
 instance Stitchable IntoSt where
-    toStitches i = IntoSt i
-
     uses (Into _) = 1
     uses (IntoTog _ sts) = allUses sts
 
@@ -352,8 +356,8 @@ instance Stitchable IntoSt where
     check (IntoTog _ []) = False
     check i@(IntoTog t sts) = (uses t) == (allUses sts) && (check t) && (and $ check <$> sts)
 
-    nextRow r (Into sts) = concat $ (nextRow r) <$> sts
-    nextRow r (IntoTog t sts) = (nextRow r t) ++ (concat $ (nextRow r) <$> sts)
+    --nextRow r (Into sts) = concat $ (nextRow r) <$> sts
+    --nextRow r (IntoTog t sts) = (nextRow r t) ++ (concat $ (nextRow r) <$> sts)
 
 
 data PickSts = StitchPick Stitch
@@ -364,9 +368,6 @@ instance Instructable PickSts where
     instr (IntoPick i) = instr i
 
 instance Stitchable PickSts where
-    toStitches (StitchPick s) = Stitch s
-    toStitches (IntoPick i) = IntoSt i
-
     uses _ = 0
     makes (StitchPick s) = makes s
     makes (IntoPick i) = makes i
@@ -374,8 +375,8 @@ instance Stitchable PickSts where
     check (StitchPick s) = check s
     check (IntoPick i) = check i
 
-    nextRow r (StitchPick s) = nextRow r s
-    nextRow r (IntoPick i) = nextRow r i
+    --nextRow r (StitchPick s) = nextRow r s
+    --nextRow r (IntoPick i) = nextRow r i
 
 data Pick = Make Side PickSts
           | DipStitch Int PickSts deriving (Eq, Show, Read)
@@ -385,13 +386,12 @@ instance Instructable Pick where
     instr (DipStitch n st) = "Pick up st " ++ (show n) ++ " rows below and " ++ (instr st)
 
 instance Stitchable Pick where
-    toStitches = Pick
     uses _ = 0
     makes (Make s st) = makes st
     makes (DipStitch n st) = makes st
     check _ = True
-    nextRow r (Make _ st) = nextRow r st
-    nextRow r (DipStitch n st) = nextRow r st
+--    nextRow r (Make _ st) = nextRow r st
+--    nextRow r (DipStitch n st) = nextRow r st
 
 
 data YarnOver = Yo deriving (Eq, Show, Read)
@@ -400,13 +400,11 @@ instance Instructable YarnOver where
     instr Yo = "yo"
 
 instance Stitchable YarnOver where
-    toStitches = YarnOver
     uses _ = 0
     makes _ = 1
     check _ = True
-    nextRow (RowSide Back) _ = [Stitch (St Purl Front)]
-    nextRow (Short Back) _ = [Stitch (St Purl Front)]
-    nextRow _ _ = [Stitch (St Knit Front)]
+--    nextRow (RowSide Back) _ = [Stitch (St Purl Front)]
+--    nextRow (Short Back) _ = [Stitch (St Purl Front)]
 
 data DropSt = Drop deriving (Show, Eq, Read)
 
@@ -414,37 +412,32 @@ instance Instructable DropSt where
     instr Drop = "drop next stitch"
 
 instance Stitchable DropSt where
-    toStitches = DropSt
     uses Drop = 1
     makes _ = 0
     check _ = True
-    nextRow _ _ = []
 
 
-data Cable = Hold Side [Stitches] [Stitches] deriving (Eq, Show, Read)
+data Cable = Hold Side [StitchInstance] [StitchInstance] deriving (Eq, Show, Read)
 instance Instructable Cable where
     instr (Hold s cn sts) = "Put next " ++ (show $ allUses cn) ++ " on cn and hold in " ++
                             (expanded s) ++ ", " ++ (commaInstr sts) ++ " then " ++ (commaInstr cn) ++ " from cn"
 
 instance Stitchable Cable where
-    toStitches = Cable
     uses (Hold _ sts1 sts2) = (allUses sts1) + (allUses sts2)
     makes (Hold _ sts1 sts2) = (allMakes sts1) + (allMakes sts2)
     check _ = True
 
-    nextRow r (Hold _ sts1 sts2) = (concat $ (nextRow r) <$> sts1) ++ (concat $ (nextRow r) <$> sts1)
+    --nextRow r (Hold _ sts1 sts2) = (concat $ (nextRow r) <$> sts1) ++ (concat $ (nextRow r) <$> sts1)
 
 
 -- implied turn back after stitches worked
-data Turn = TurnWork [Stitches] [Stitches] deriving (Eq, Show, Read)
+data Turn = TurnWork [StitchInstance] [StitchInstance] deriving (Eq, Show, Read)
 
 instance Instructable Turn where
     instr (TurnWork sts1 sts2) = (commaInstr sts1) ++ ", turn work and " ++ (commaInstr sts2) ++ " then turn back"
 
 instance Stitchable Turn where
-    toStitches = Turn
     uses _ = 0
     makes _ = 0
     check (TurnWork sts1 sts2) = (allMakes sts1) == (allUses sts2)
-    nextRow _ _ = []
 
