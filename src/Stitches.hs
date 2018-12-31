@@ -1,5 +1,7 @@
 module Stitches where
 
+import Pattern
+
 data Needle = RH | LH deriving (Eq, Show, Read)
 
 instance Instructable Needle where

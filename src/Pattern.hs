@@ -1,9 +1,9 @@
-module StitchTypes where
+module Pattern where
 
-import Text.Read
+import Control.Monad.State
+import qualified Data.Map as M
+import Text.Read (readMayb)
 
-data OnNeedle = Wrap
-              | Loop Stitch deriving (Show, Eq, Read)
 
 class Reversable a where
     other :: a -> a
@@ -32,6 +32,7 @@ class (Eq a, Show a, Read a, Instructable a) => Stitchable a where
     allMakes :: [a] -> Int
     allMakes as = sum $ makes <$> as
     check :: a -> Bool
+    mapStitches :: (Enum b) => a -> [b] -> Maybe [b]
     makeInstance :: a -> StitchInstance
     makeInstance s =
         StInstance (show s) (uses s) (makes s) (check s)
@@ -55,12 +56,46 @@ instance Stitchable StitchInstance where
     check = stitchCheck
     makeInstance = id
 
-{-
-instance Show StitchInstance where
-    show inst = showStitch inst
+type PatternError = String
 
-instance Read StitchInstance where
-    readsPrec _ a =
-        let st = read a :: Stitchable a => a in
-            [(makeInstance st,"")]
--}
+data Row a = Middle ([a], [a])
+           | Complete [a]
+           deriving (Show, Read)
+
+applyToRow :: Int -> [a] -> Row a -> Maybe (Row a)
+applyToRow uses new row
+    | uses > nextLen = Nothing
+    | uses == nextLen = Just $ Complete newSts
+    | otherwise = Just $ Middle (drop uses nextSts, newSts)
+    where
+        nextSts = case row of
+            Middle (lh, _) -> lh
+            Complete sts -> sts
+        nextLen = length nextSts
+        newSts = case row of
+            Middle (_, rh) -> new ++ rh
+            _ -> new
+
+data Pattern =
+    Pattern
+        (M.Map Integer StitchInstance) -- lookup
+        Integer
+        (M.Map Integer [Integer])
+        (M.Map Integer [Integer])
+        (Row Integer)
+    | PatternError
+    deriving (Show)
+
+
+
+addStitch :: StitchInstance -> State Pattern ()
+addStitch st = state $ \pat ->
+    case pat of
+        (Pattern stLkup nextId last from row) -> 
+            let newLkup = M.insert nextId st stLkup
+                newNext = 
+                newFrom =
+                newRow = applyToRow (stitchUse st) [st] row
+                in
+                    Pattern newLkup (nextId+1) newNext newFrom newRow
+        _ -> PatternError
