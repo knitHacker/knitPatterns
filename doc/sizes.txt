@@ -1,8 +1,0 @@
-Do size difference like versioning
-- Granularity
-    - Want per stich or per row?
-        - what is per stitch granularity
-    - List of all possible rows and pattern is a list of pointers into that
-
-- pattern is list of functions and parameters to those functions to generate the next row
-
